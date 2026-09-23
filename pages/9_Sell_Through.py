@@ -12,7 +12,7 @@ st.caption(
     "Carica il file **BUYING** (sell-in), stesso layout posizionale del tab originale: "
     "colonna F=Codice, G=Variante, H=Colore, L=Quantità, AV=Codice Cliente."
 )
-buying_file = st.file_uploader("BUYING (sell-in)", type=["csv"])
+buying_file = st.file_uploader("BUYING (sell-in)", type=["csv", "txt"])
 
 livello = st.radio("Livello di aggregazione", ["Articolo (7)", "Articolo/Variante (9)", "Articolo/Variante/Colore (13)"],
                     horizontal=True)

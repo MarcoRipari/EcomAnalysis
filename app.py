@@ -12,18 +12,34 @@ st.caption(
 
 with st.sidebar:
     st.header("1️⃣ Dati sorgente")
-    dataset_current_file = st.file_uploader("DATASET (anno corrente) *", type=["csv"])
-    resi_current_file = st.file_uploader("RESI (anno corrente) *", type=["csv"])
+    dataset_current_file = st.file_uploader("DATASET (anno corrente) *", type=["csv", "txt"])
+    resi_current_file = st.file_uploader("RESI (anno corrente) *", type=["csv", "txt"])
 
     with st.expander("Anno precedente (per i report Y2Y / Carryover)"):
-        dataset_old_file = st.file_uploader("DATASET OLD", type=["csv"], key="ds_old")
-        resi_old_file = st.file_uploader("RESI OLD", type=["csv"], key="resi_old")
+        dataset_old_file = st.file_uploader("DATASET OLD", type=["csv", "txt"], key="ds_old")
+        resi_old_file = st.file_uploader("RESI OLD", type=["csv", "txt"], key="resi_old")
 
     with st.expander("Anagrafica articoli (facoltativa)"):
         st.caption("Serve per descrizioni, serie, classificazione per genere (Taglie) e foto. "
                     "Layout posizionale: colonna A=SKU, E=Collezione, F=Serie, G=Codice, "
                     "J=Descrizione, N=Genere.")
-        anagrafica_file = st.file_uploader("ANAGRAFICA", type=["csv"], key="anag")
+        anagrafica_file = st.file_uploader("ANAGRAFICA", type=["csv", "txt"], key="anag")
+
+    with st.expander("Correzione Nazione per file TXT grezzi (facoltativa)"):
+        st.caption(
+            "Se il file è il TXT grezzo (non il CSV già pulito) e la colonna Nazione contiene "
+            "valori come 'Allemagne'/'anonymized', attiva la correzione: risolve gli alias "
+            "(FR/DE/ES/...) e, per le righe 'anonymized', deduce la nazione da Ordine/Sito "
+            "(stessa logica delle tue formule SWITCH + cascata Miinto/Sarenza/Vertbaudet/BE/CH)."
+        )
+        attiva_correzione_naz = st.checkbox("Attiva correzione Nazione", value=False)
+        col_sito_nazione = None
+        if attiva_correzione_naz:
+            col_sito_nazione = st.number_input(
+                "Indice colonna 'Sito esteso' (0-based, la tua colonna Q)", min_value=0, value=16, step=1,
+                help="Nel layout standard A-P sono le 16 colonne di DATASET/RESI (indici 0-15); "
+                     "indica qui l'indice della colonna aggiuntiva con il nome sito esteso.",
+            )
 
     st.header("2️⃣ Perimetro logistico")
     perimetro_label = st.radio(
@@ -38,21 +54,39 @@ with st.sidebar:
                         disabled=not (dataset_current_file and resi_current_file))
 
 if genera:
-    with st.spinner("Elaborazione dataset in corso…"):
-        try:
-            result = pl.run_pipeline(
-                dataset_current_file=dataset_current_file,
-                resi_current_file=resi_current_file,
-                dataset_old_file=dataset_old_file,
-                resi_old_file=resi_old_file,
-                anagrafica_file=anagrafica_file,
-                perimetro=perimetro,
-            )
-            st.session_state["pipeline"] = result
-            st.session_state["perimetro_label"] = perimetro_label
-        except Exception as e:
-            st.exception(e)
-            st.stop()
+    progress_bar = st.progress(0.0, text="Avvio elaborazione…")
+    steps_totali = 6
+    state = {"i": 0}
+
+    def on_progress(label):
+        state["i"] += 1
+        progress_bar.progress(min(state["i"] / steps_totali, 1.0), text=label)
+
+    try:
+        result = pl.run_pipeline(
+            dataset_current_file=dataset_current_file,
+            resi_current_file=resi_current_file,
+            dataset_old_file=dataset_old_file,
+            resi_old_file=resi_old_file,
+            anagrafica_file=anagrafica_file,
+            perimetro=perimetro,
+            col_sito_nazione=col_sito_nazione,
+            progress=on_progress,
+        )
+        progress_bar.progress(1.0, text="Completato.")
+        st.session_state["pipeline"] = result
+        st.session_state["perimetro_label"] = perimetro_label
+    except MemoryError:
+        st.error(
+            "⚠️ Memoria esaurita durante l'elaborazione. Se i file sono molto grandi "
+            "(centinaia di migliaia di righe ciascuno), prova a generare prima solo l'anno "
+            "corrente (senza DATASET OLD/RESI OLD), oppure valuta un piano Streamlit Cloud "
+            "con più RAM del tier gratuito."
+        )
+        st.stop()
+    except Exception as e:
+        st.exception(e)
+        st.stop()
 
 pipe = st.session_state.get("pipeline")
 

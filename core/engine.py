@@ -34,34 +34,39 @@ from . import config as CFG
 # Lettura CSV grezzo
 # --------------------------------------------------------------------------------------
 
-def read_raw_csv(file_or_path) -> pd.DataFrame:
+def read_raw_csv(file_or_path, sep: str | None = None) -> pd.DataFrame:
     """
-    Legge un CSV DATASET/RESI (stesso layout per tutti e 4 i tab) come stringhe grezze,
-    posizionale (nessun header usato per il mapping colonne). Gestisce ; come separatore,
-    campi quotati, e tenta più encoding (i file esportati da alcuni gestionali non sono
-    sempre UTF-8 pulito).
+    Legge un CSV/TXT DATASET/RESI (stesso layout per tutti e 4 i tab) come stringhe grezze,
+    posizionale (nessun header usato per il mapping colonne). Se `sep` non è indicato, prova
+    prima ';' (export CSV "puliti") poi tab (export TXT grezzi) e tiene quello che produce più
+    di una colonna. Gestisce campi quotati e più encoding.
     """
     raw_bytes = _to_bytes(file_or_path)
+    seps_to_try = [sep] if sep else [";", "\t"]
     last_err = None
-    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
-        try:
-            df = pd.read_csv(
-                io.BytesIO(raw_bytes),
-                sep=";",
-                header=None,
-                skiprows=1,
-                dtype=str,
-                quotechar='"',
-                engine="c",
-                encoding=enc,
-                on_bad_lines="skip",
-                keep_default_na=False,
-            )
-            return df
-        except (UnicodeDecodeError, pd.errors.ParserError) as e:
-            last_err = e
-            continue
-    raise last_err
+    for candidate_sep in seps_to_try:
+        for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+            try:
+                df = pd.read_csv(
+                    io.BytesIO(raw_bytes),
+                    sep=candidate_sep,
+                    header=None,
+                    skiprows=1,
+                    dtype=str,
+                    quotechar='"',
+                    engine="c",
+                    encoding=enc,
+                    on_bad_lines="skip",
+                    keep_default_na=False,
+                )
+                if df.shape[1] > 1:
+                    return df
+            except (UnicodeDecodeError, pd.errors.ParserError) as e:
+                last_err = e
+                continue
+    if last_err:
+        raise last_err
+    raise ValueError("Impossibile determinare il separatore del file (né ';' né tab producono più colonne).")
 
 
 def _to_bytes(file_or_path) -> bytes:
@@ -75,8 +80,61 @@ def _to_bytes(file_or_path) -> bytes:
 
 
 # --------------------------------------------------------------------------------------
-# ANAGRAFICA (facoltativa) — porting di loadMasterData()
+# Correzione Nazione — porting delle due formule Sheets (SWITCH + cascata anonymized)
+# usate sui file TXT grezzi prima di process_dataset().
 # --------------------------------------------------------------------------------------
+
+def resolve_nazione_txt(df_raw: pd.DataFrame, col_nazione: int, col_ordine: int, col_sito: int) -> pd.Series:
+    """
+    Porting di:
+      colonna R = SWITCH($B2; "Allemagne";"DE"; ... ; $B2)          -> primo mapping alias
+      colonna S = SE($R2="anonymized"; <cascata su Q e I>; R2)      -> risoluzione anonymized
+
+    `col_nazione` = indice colonna Nazione grezza (il tuo "B", di solito COLS_DATASET.NAZ).
+    `col_ordine`  = indice colonna Ordine (il tuo "I", di solito COLS_DATASET.ORDINE_ID).
+    `col_sito`    = indice colonna "sito esteso" usata per riconoscere Miinto/Sarenza/
+                    Vertbaudet e i suffissi BE/CH (il tuo "Q" — DA CONFERMARE, vedi nota
+                    nel README: non è una delle 16 colonne di COLS_DATASET, è un campo in più
+                    presente solo nell'export TXT grezzo).
+
+    Ritorna la Series Nazione già risolta, pronta per finire nella colonna NAZ prima di
+    chiamare process_dataset().
+    """
+    naz_raw = df_raw[col_nazione].astype(str).str.strip()
+    ordine = df_raw[col_ordine].astype(str).str.strip()
+    sito = df_raw[col_sito].astype(str).str.strip() if col_sito < df_raw.shape[1] else pd.Series("", index=df_raw.index)
+
+    # colonna R: alias diretto, case-insensitive (vedi commento su MAP_NATION in config.py)
+    r = naz_raw.str.lower().map(CFG.MAP_NATION).fillna(naz_raw)
+
+    is_anon = naz_raw.str.lower() == CFG.NAZIONE_ANONIMIZZATA
+
+    sito_lower = sito.str.lower()
+    cond_miinto = sito_lower.str.startswith("miinto")
+    cond_sarenza = sito_lower.str.startswith("sarenza")
+    cond_vertbaudet = sito_lower.str.startswith("vertbaudet")
+    suffix5_2 = sito.str.slice(-5).str.slice(0, 2).str.upper()
+    cond_be = suffix5_2 == "BE"
+    cond_ch = suffix5_2 == "CH"
+
+    s = pd.Series(np.select(
+        [cond_miinto, cond_sarenza, cond_vertbaudet, cond_be, cond_ch],
+        [ordine.str.slice(0, 2).str.upper(), "FR", "FR", "BE", "CH"],
+        default=sito.str.slice(-2).str.upper(),
+    ), index=df_raw.index)
+
+    return r.where(~is_anon, s)
+
+
+def apply_nazione_correction_inplace(df_raw: pd.DataFrame, col_sito: int) -> pd.DataFrame:
+    """Scorciatoia: applica resolve_nazione_txt() usando NAZ/ORDINE_ID di COLS_DATASET e
+    sovrascrive la colonna Nazione grezza in place. Da chiamare PRIMA di process_dataset()."""
+    c = CFG.COLS_DATASET
+    df_raw[c["NAZ"]] = resolve_nazione_txt(df_raw, c["NAZ"], c["ORDINE_ID"], col_sito)
+    return df_raw
+
+
+
 
 # Colonne ANAGRAFICA (0-based), come in loadMasterData: sku=0, clz=4, serie=5, cod=6,
 # desc=9, genere=13.
@@ -271,4 +329,11 @@ def process_dataset(df_raw: pd.DataFrame, anagrafica: dict) -> pd.DataFrame:
 
     out = out[mask_valid].reset_index(drop=True)
     out["matchedVia"] = ""
+
+    # Dtype 'category' sulle colonne a bassa cardinalità: su dataset grandi (100k+ righe)
+    # taglia/nazione/genere/tipoSpedizione/clzMappata si ripetono moltissimo, e la category
+    # riduce l'uso di RAM di un ordine di grandezza rispetto a stringhe Python ripetute.
+    for col in ("mkp", "nazione", "clzMappata", "taglia", "genere", "tipoSpedizione"):
+        out[col] = out[col].astype("category")
+
     return out

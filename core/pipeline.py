@@ -14,7 +14,9 @@ Streamlit dei singoli report (equivalenti ai moduli generateXxxModulo di reports
 
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass, field
+from typing import Callable
 
 import pandas as pd
 
@@ -49,12 +51,31 @@ def run_pipeline(
     resi_old_file=None,
     anagrafica_file=None,
     perimetro: str = "1",
+    col_sito_nazione: int | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> Pipeline:
+    """`progress`, se passato, viene chiamato con una breve label prima di ogni fase pesante —
+    utile per mostrare uno stato di avanzamento nella UI invece di uno spinner "muto" che, su
+    file molto grandi, può sembrare bloccato/in crash quando in realtà sta ancora lavorando."""
+    def step(label):
+        if progress:
+            progress(label)
+
     anagrafica = engine.load_anagrafica(anagrafica_file)
 
-    current_data = engine.process_dataset(engine.read_raw_csv(dataset_current_file), anagrafica)
-    old_data = (engine.process_dataset(engine.read_raw_csv(dataset_old_file), anagrafica)
-                if dataset_old_file is not None else current_data.iloc[0:0].copy())
+    def _load(f):
+        raw = engine.read_raw_csv(f)
+        if col_sito_nazione is not None:
+            engine.apply_nazione_correction_inplace(raw, col_sito_nazione)
+        processed = engine.process_dataset(raw, anagrafica)
+        del raw
+        return processed
+
+    step("Lettura e normalizzazione DATASET…")
+    current_data = _load(dataset_current_file)
+    step("Lettura e normalizzazione DATASET OLD…")
+    old_data = _load(dataset_old_file) if dataset_old_file is not None else current_data.iloc[0:0].copy()
+    gc.collect()
 
     periodo_current = metrics.get_period_bounds(current_data)
     periodo_old = metrics.get_period_bounds(old_data) if not old_data.empty else (None, None)
@@ -64,9 +85,12 @@ def run_pipeline(
 
     diag_pre_filtro = metrics.conta_per_canale(current_data)
 
-    resi_raw_current = engine.process_dataset(engine.read_raw_csv(resi_current_file), anagrafica)
-    resi_raw_old = (engine.process_dataset(engine.read_raw_csv(resi_old_file), anagrafica)
+    step("Lettura e normalizzazione RESI…")
+    resi_raw_current = _load(resi_current_file)
+    step("Lettura e normalizzazione RESI OLD…")
+    resi_raw_old = (_load(resi_old_file)
                     if (resi_old_file is not None and not old_data.empty) else current_data.iloc[0:0].copy())
+    gc.collect()
 
     current_data = _filtra_perimetro(current_data, perimetro)
     old_data = _filtra_perimetro(old_data, perimetro)
@@ -76,12 +100,17 @@ def run_pipeline(
     metriche_grezze_current = metrics.calculate_global_metrics_detailed(current_data)
     metriche_grezze_old = metrics.calculate_global_metrics_detailed(old_data) if not old_data.empty else None
 
+    step("Riconciliazione RESI (anno corrente)…")
     esito_resi_current = reconciler.reconcile_resi_con_dataset(
         current_data, resi_raw_current, *periodo_current)
+    del resi_raw_current
+    step("Riconciliazione RESI (anno precedente)…")
     esito_resi_old = (
         reconciler.reconcile_resi_con_dataset(old_data, resi_raw_old, *periodo_old)
         if not old_data.empty else {"convertiti": [], "duplicati": [], "standalone": pd.DataFrame(), "fuoriPeriodo": []}
     )
+    del resi_raw_old
+    gc.collect()
 
     diag_post_filtro = metrics.conta_per_canale(current_data)
 

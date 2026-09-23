@@ -61,10 +61,11 @@ def aggregate_by_taglia_per_brand(df: pd.DataFrame) -> dict:
         return result
 
     work = df.copy()
-    work["_brand"] = work["clzMappata"].fillna("ALTRO").replace("", "ALTRO")
+    work["_brand"] = work["clzMappata"].astype(str).replace("", "ALTRO").fillna("ALTRO")
     generi_ok = {"UOMO", "DONNA", "UNISEX", "BAMBINO", "BAMBINA", "ACCESSORI", "ABBIGLIAMENTO"}
-    work["_gruppo"] = work["genere"].where(work["genere"].isin(generi_ok), "NON CLASSIFICATO")
-    work["_taglia"] = work["taglia"].fillna("ND").replace("", "ND")
+    genere_str = work["genere"].astype(str)
+    work["_gruppo"] = genere_str.where(genere_str.isin(generi_ok), "NON CLASSIFICATO")
+    work["_taglia"] = work["taglia"].astype(str).replace("", "ND").fillna("ND")
 
     grp = work.groupby(["_brand", "_gruppo", "_taglia"], sort=False).agg(
         paiaNette=("paiaNette", "sum"), paiaSpedite=("paiaSpedite", "sum"),

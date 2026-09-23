@@ -89,7 +89,50 @@ L=Quantità, AV=Codice Cliente.
   whitelisted in `chiave_composita` (impedisce volutamente il match per quelle righe, non è
   un bug del porting).
 
-## Cosa NON è stato portato 1:1
+## File TXT grezzi e correzione Nazione
+
+Se carichi il TXT grezzo (non il CSV già ripulito) invece del layout A-P a 16 colonne, l'app:
+- prova automaticamente sia `;` che tab come separatore (non serve specificarlo);
+- se attivi "Correzione Nazione" nella sidebar e indichi l'indice della colonna "Sito esteso"
+  (la tua colonna Q), applica la stessa logica delle tue due formule Sheets:
+  1. alias diretto (Allemagne→DE, Autriche→AT, Belgique→BE, ecc. — vedi `MAP_NATION` in
+     `core/config.py`, case-insensitive quindi una sola voce per variante, a differenza del
+     SWITCH di Sheets che doveva elencare "France" e "FRANCE" separatamente);
+  2. per le righe con Nazione = "anonymized": prefisso "Miinto" → primi 2 caratteri
+     dell'Ordine, "Sarenza"/"Vertbaudet" → FR, suffisso "BE"/"CH" sugli ultimi 5 caratteri del
+     Sito → BE/CH, altrimenti ultimi 2 caratteri del Sito.
+
+**Da confermare**: non conosco l'indice esatto della tua colonna "Sito esteso" (Q) nel TXT
+grezzo — il layout A-P (16 colonne, indici 0-15) è lo stesso di `CONFIG.COLS_DATASET`, quindi
+Q sarebbe l'indice 16 (valore di default nel campo), ma se il tuo export ha altre colonne in
+mezzo va corretto. Mandami un paio di righe di esempio (anche anonimizzate) del TXT grezzo,
+header incluso, e te lo blocco all'indice giusto — o aggiustalo tu direttamente nella sidebar,
+è un campo numerico.
+
+## Prestazioni su file grandi
+
+Il motore di riconciliazione RESI è vettoriale (pandas/numpy), non un ciclo Python
+riga-per-riga sull'intero DATASET: con ~360.000 righe DATASET e ~145.000 RESI da riconciliare,
+in locale gira in un paio di secondi con un picco di memoria dell'ordine di ~800MB per l'intero
+processo Python (include già current+old+resi in memoria insieme). Le colonne a bassa
+cardinalità (nazione, collezione mappata, taglia, genere, tipo spedizione) usano il dtype
+`category` per ridurre l'uso di RAM sui dataset grandi.
+
+Limiti pratici da tenere a mente:
+- **Streamlit Community Cloud ha ~1GB di RAM per app**, indipendentemente da `maxUploadSize`
+  (alzato a 1024MB in `.streamlit/config.toml` solo per il limite di upload, non per la RAM
+  disponibile). Se carichi DATASET + DATASET OLD + RESI + RESI OLD tutti molto grandi
+  contemporaneamente, è comunque possibile arrivare a saturare la RAM del tier gratuito.
+- Se ti serve più margine: genera prima solo l'anno corrente (senza OLD) per i controlli
+  rapidi, oppure valuta un piano Streamlit Cloud con più risorse, oppure fammi sapere e
+  aggiungo una lettura a chunk (`pd.read_csv(..., chunksize=...)`) per processare i file più
+  grandi senza mai tenerli interamente in RAM come testo grezzo.
+- La barra di progresso in home ora mostra la fase in corso (lettura DATASET, RESI,
+  riconciliazione...): se prima l'app sembrava "bloccata" su file grandi, ora almeno si vede
+  cosa sta facendo — se si ferma con un errore di memoria lo segnala esplicitamente invece di
+  chiudersi in modo silenzioso.
+
+
 
 - La formattazione a fogli Excel (colori cella, merge, chart nativi Sheets) è sostituita da
   componenti Streamlit nativi (`st.dataframe` con `column_config`, `plotly` per il grafico
