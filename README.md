@@ -89,7 +89,65 @@ L=Quantità, AV=Codice Cliente.
   whitelisted in `chiave_composita` (impedisce volutamente il match per quelle righe, non è
   un bug del porting).
 
-## File TXT grezzi e correzione Nazione
+## Architettura dati: DB incrementale (non più upload ad ogni report)
+
+Da questa versione i file NON si ricaricano più per generare un report. Il flusso è:
+
+1. **Pagina "⬆️ Carica Dati"** — carichi i file DATASET/RESI (CSV o TXT) man mano che li
+   ricevi. Ogni riga finisce in un DB SQLite (`data/ecombi.db`) con uno stato `Spedito`/`Reso`
+   già "cristallizzato": ricaricare lo stesso file è idempotente (non duplica nulla), e un
+   file RESI aggiorna con un `UPDATE` mirato solo le righe DATASET già presenti che matchano
+   (stessa cascata a due chiavi di `reconciler.py`), **senza mai toccare il loro numero
+   ordine** — l'ordine resta sempre quello del DATASET, anche quando il match avviene tramite
+   la chiave composita (perché il RESI di un sito proprietario ha un numero ordine diverso).
+2. **Home** — scegli un range di date (ed eventualmente un secondo range di confronto Y2Y) e
+   premi "Genera dati report": interroga il DB, non rilegge alcun file.
+3. Le 9 pagine di report **non sono cambiate**: leggono lo stesso oggetto `Pipeline` di prima,
+   ora popolato da `pipeline.build_pipeline_from_db()` invece che da `run_pipeline()`.
+
+### Semantica del range di date
+
+- *Venduto nel periodo* = righe con **Data Pagamento** nel range. Se una riga è "Reso" ma la
+  sua **Data Reso/Sped.** NON cade nello stesso range, per quel periodo conta come spedita pura
+  (il reso "appartiene" a un altro periodo — stessa logica di `apply_period_bound_to_returns`,
+  ora calcolata a query-time invece che una volta sola sul file).
+- *Reso extra nel periodo* = righe con **Data Reso/Sped.** nel range ma vendute fuori dal range
+  (o senza uno spedito noto, cioè le righe standalone create quando un RESI non trova alcun
+  match). Riduce il fatturato netto reale del periodo senza contare come vendita del periodo.
+
+Questo significa che la riconciliazione non viene più rifatta ogni volta: è già scritta nello
+stato di ogni riga al momento del caricamento; il range di date decide solo come leggerla.
+
+### DB: SQLite ora, migrazione facile in futuro
+
+Ho scelto SQLite (nessuna dipendenza extra, zero config) per avere subito qualcosa di
+funzionante. **Attenzione**: su Streamlit Community Cloud il filesystem è persistente solo tra
+un "risveglio" e l'altro dell'app — **viene azzerato ad ogni redeploy/push**. Se ti serve
+persistenza vera tra un deploy e l'altro:
+- **Turso** (SQLite-compatibile, stesso SQL, free tier) — migrazione quasi a costo zero, basta
+  cambiare `sqlite3.connect(...)` con il client `libsql` nello stesso file `core/db.py`.
+- **Postgres** (Supabase/Neon free tier) — richiede riscrivere le query con `?` → `%s` e
+  gestire i tipi data in modo esplicito, ma lo schema resta identico.
+
+La pagina "Carica Dati" ha un pulsante per svuotare il DB e mostra sempre la copertura dati
+attuale, così sai subito se dopo un redeploy devi ricaricare tutto.
+
+### Comparazione a 3 anni
+
+Il layer DB (`db.query_period`) supporta già query per un numero arbitrario di periodi (basta
+chiamarlo 3 volte con 3 range diversi). Le 9 pagine di report, però, sono scritte per un
+confronto a 2 periodi (corrente/precedente) come nell'originale Apps Script. Estendere anche
+la UI a 3 periodi è un secondo passo mirato (soprattutto su Y2Y Generale, Y2Y Codici e
+Collezioni) — fammi sapere se vuoi che lo faccia, così pianifichiamo quali report estendere
+prima.
+
+### Modalità "a file" (legacy)
+
+`pipeline.run_pipeline()` (la versione precedente, a file) è ancora nel codice e funzionante,
+per un uso occasionale/di test senza toccare il DB — ma il flusso consigliato per l'uso
+quotidiano è quello a DB descritto sopra.
+
+
 
 Se carichi il TXT grezzo (non il CSV già ripulito) invece del layout A-P a 16 colonne, l'app:
 - prova automaticamente sia `;` che tab come separatore (non serve specificarlo);

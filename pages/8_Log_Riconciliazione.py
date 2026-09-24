@@ -1,46 +1,42 @@
 import streamlit as st
 
-from core import report_builders as rb
-from core.ui_helpers import guard_pipeline
+from core import db
 
 st.set_page_config(page_title="Log Riconciliazione", page_icon="🔍", layout="wide")
-st.title("🔍 Log Riconciliazione Resi")
+st.title("🔍 Log Riconciliazione")
+st.caption(
+    "Storico permanente di tutti i caricamenti RESI: ogni riga viene loggata al momento "
+    "dell'upload (convertita, duplicata o rimborso extra), indipendentemente dal periodo poi "
+    "scelto in home per i report."
+)
 
-pipe = guard_pipeline()
+conn = db.connect()
 
-COLS_MATCH = {"ordineId": "Ordine Dataset", "ordineIdResi": "Ordine Resi", "sku13": "SKU13",
-              "keyComp": "keyComp", "modalita": "Modalità Match"}
-COLS_STANDALONE = {"ordineId": "Ordine Resi", "sku13": "SKU13"}
+log_upload = db.get_upload_log(conn)
+files_resi = sorted(log_upload.loc[log_upload["tipo"] == "RESI", "fonte_file"].unique().tolist()) \
+    if not log_upload.empty else []
 
+col1, col2 = st.columns(2)
+with col1:
+    filtro_file = st.selectbox("Filtra per file RESI", ["(tutti)"] + files_resi)
+with col2:
+    filtro_esito = st.selectbox("Filtra per esito", ["(tutti)", "convertito", "duplicato", "standalone"])
 
-def blocco(titolo, righe, cols_map):
-    st.subheader(titolo)
-    df = rb.log_df(righe, cols_map)
-    if df.empty:
-        st.caption("Nessuna riga.")
-    else:
-        st.dataframe(df, hide_index=True, use_container_width=True)
+df = db.get_match_log(
+    conn,
+    fonte_file=None if filtro_file == "(tutti)" else filtro_file,
+    esito=None if filtro_esito == "(tutti)" else filtro_esito,
+)
 
+if df.empty:
+    st.caption("Nessuna riga di log (carica un file RESI dalla pagina ⬆️ Carica Dati).")
+else:
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Convertiti", int((df["esito"] == "convertito").sum()))
+    c2.metric("Duplicati", int((df["esito"] == "duplicato").sum()))
+    c3.metric("Standalone (rimborsi extra)", int((df["esito"] == "standalone").sum()))
+    st.dataframe(df, hide_index=True, use_container_width=True, height=600)
 
-anno_corr, anno_prec = st.tabs(["Anno Corrente", "Anno Precedente"])
-
-with anno_corr:
-    esito = pipe.esito_resi_current
-    blocco("Convertiti (Spedito → Reso)", esito["convertiti"], COLS_MATCH)
-    blocco("Duplicati scartati (già Reso in DATASET)", esito["duplicati"], COLS_MATCH)
-    standalone_rows = esito["standalone"].to_dict("records") if not esito["standalone"].empty else []
-    blocco("Resi Extra (rimborsi non abbinati)", standalone_rows, COLS_STANDALONE)
-    blocco("Resi FUORI PERIODO (non applicati)", esito["fuoriPeriodo"], COLS_MATCH)
-
-with anno_prec:
-    if pipe.old_data.empty:
-        st.info("Carica anche DATASET OLD / RESI OLD nella home per vedere questo log.")
-    else:
-        esito_old = pipe.esito_resi_old
-        blocco("Convertiti (Spedito → Reso)", esito_old["convertiti"], COLS_MATCH)
-        blocco("Duplicati scartati (già Reso in DATASET)", esito_old["duplicati"], COLS_MATCH)
-        standalone_rows_old = (esito_old["standalone"].to_dict("records")
-                                if hasattr(esito_old["standalone"], "empty") and not esito_old["standalone"].empty
-                                else [])
-        blocco("Resi Extra (rimborsi non abbinati)", standalone_rows_old, COLS_STANDALONE)
-        blocco("Resi FUORI PERIODO (non applicati)", esito_old["fuoriPeriodo"], COLS_MATCH)
+st.divider()
+st.subheader("🕒 Storico caricamenti (DATASET + RESI)")
+st.dataframe(log_upload, hide_index=True, use_container_width=True)

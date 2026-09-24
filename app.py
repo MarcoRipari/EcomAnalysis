@@ -1,45 +1,55 @@
+import datetime as dt
+
 import streamlit as st
 
-from core import pipeline as pl
+from core import db, pipeline as pl
 
 st.set_page_config(page_title="Pannello Report E-commerce", page_icon="🚀", layout="wide")
 
 st.title("🚀 Pannello Report — E-commerce BI")
 st.caption(
-    "Porting Python/Streamlit del sistema Google Apps Script di reportistica sell-out. "
-    "Carica i file, genera i dati una volta sola, poi naviga tra i report nel menu a sinistra."
+    "I dati vivono nel DB (pagina **⬆️ Carica Dati**): qui scegli solo il periodo da "
+    "analizzare — nessun file da ricaricare ad ogni report."
 )
 
+conn = db.connect()
+stats = db.get_stats(conn)
+
+if stats["righe_totali"] == 0:
+    st.info("⬅️ Il DB è vuoto. Vai alla pagina **⬆️ Carica Dati** e carica almeno un DATASET.")
+    st.stop()
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Righe nel DB", f"{stats['righe_totali']:,}".replace(",", "."))
+c2.metric("Spedite", f"{stats['spediti']:,}".replace(",", "."))
+c3.metric("Rese", f"{stats['resi']:,}".replace(",", "."))
+c4.metric("Rimborsi extra", f"{stats['standalone']:,}".replace(",", "."))
+st.caption(f"Copertura dati (Data Pagamento): dal **{stats['data_min']}** al **{stats['data_max']}**.")
+
+data_min = dt.date.fromisoformat(stats["data_min"])
+data_max = dt.date.fromisoformat(stats["data_max"])
+
+
+def _shift_year(d: dt.date, years: int) -> dt.date:
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:  # 29 febbraio su anno non bisestile
+        return d.replace(year=d.year + years, day=28)
+
+
 with st.sidebar:
-    st.header("1️⃣ Dati sorgente")
-    dataset_current_file = st.file_uploader("DATASET (anno corrente) *", type=["csv", "txt"])
-    resi_current_file = st.file_uploader("RESI (anno corrente) *", type=["csv", "txt"])
+    st.header("1️⃣ Periodo di analisi")
+    periodo_a = st.date_input(
+        "Periodo corrente", value=(max(data_min, _shift_year(data_max, -1)), data_max),
+        min_value=data_min, max_value=data_max, key="periodo_a",
+    )
 
-    with st.expander("Anno precedente (per i report Y2Y / Carryover)"):
-        dataset_old_file = st.file_uploader("DATASET OLD", type=["csv", "txt"], key="ds_old")
-        resi_old_file = st.file_uploader("RESI OLD", type=["csv", "txt"], key="resi_old")
-
-    with st.expander("Anagrafica articoli (facoltativa)"):
-        st.caption("Serve per descrizioni, serie, classificazione per genere (Taglie) e foto. "
-                    "Layout posizionale: colonna A=SKU, E=Collezione, F=Serie, G=Codice, "
-                    "J=Descrizione, N=Genere.")
-        anagrafica_file = st.file_uploader("ANAGRAFICA", type=["csv", "txt"], key="anag")
-
-    with st.expander("Correzione Nazione per file TXT grezzi (facoltativa)"):
-        st.caption(
-            "Se il file è il TXT grezzo (non il CSV già pulito) e la colonna Nazione contiene "
-            "valori come 'Allemagne'/'anonymized', attiva la correzione: risolve gli alias "
-            "(FR/DE/ES/...) e, per le righe 'anonymized', deduce la nazione da Ordine/Sito "
-            "(stessa logica delle tue formule SWITCH + cascata Miinto/Sarenza/Vertbaudet/BE/CH)."
-        )
-        attiva_correzione_naz = st.checkbox("Attiva correzione Nazione", value=False)
-        col_sito_nazione = None
-        if attiva_correzione_naz:
-            col_sito_nazione = st.number_input(
-                "Indice colonna 'Sito esteso' (0-based, la tua colonna Q)", min_value=0, value=16, step=1,
-                help="Nel layout standard A-P sono le 16 colonne di DATASET/RESI (indici 0-15); "
-                     "indica qui l'indice della colonna aggiuntiva con il nome sito esteso.",
-            )
+    confronta = st.checkbox("Confronta con un altro periodo (Y2Y)", value=True)
+    periodo_b = None
+    if confronta and isinstance(periodo_a, tuple) and len(periodo_a) == 2:
+        default_b = (max(data_min, _shift_year(periodo_a[0], -1)), min(data_max, _shift_year(periodo_a[1], -1)))
+        periodo_b = st.date_input("Periodo di confronto", value=default_b,
+                                   min_value=data_min, max_value=data_max, key="periodo_b")
 
     st.header("2️⃣ Perimetro logistico")
     perimetro_label = st.radio(
@@ -50,80 +60,54 @@ with st.sidebar:
     perimetro = {"TOTALE (Diretti + Logistica Esterna)": "1", "SOLO DIRETTI": "2",
                  "SOLO LOGISTICA ESTERNA (ZFS/FBA/AMZ)": "3"}[perimetro_label]
 
+    with st.expander("Anagrafica articoli (facoltativa)"):
+        st.caption("Serve per descrizioni, serie, classificazione per genere (Taglie) e foto.")
+        anagrafica_file = st.file_uploader("ANAGRAFICA", type=["csv", "txt"], key="anag_home")
+        if anagrafica_file is not None:
+            st.session_state["anagrafica_file"] = anagrafica_file
+
+    periodo_a_ok = isinstance(periodo_a, tuple) and len(periodo_a) == 2
+    periodo_b_ok = (not confronta) or (isinstance(periodo_b, tuple) and len(periodo_b) == 2)
     genera = st.button("▶️ Genera dati report", type="primary", use_container_width=True,
-                        disabled=not (dataset_current_file and resi_current_file))
+                        disabled=not (periodo_a_ok and periodo_b_ok))
 
 if genera:
-    progress_bar = st.progress(0.0, text="Avvio elaborazione…")
-    steps_totali = 6
-    state = {"i": 0}
-
-    def on_progress(label):
-        state["i"] += 1
-        progress_bar.progress(min(state["i"] / steps_totali, 1.0), text=label)
-
-    try:
-        result = pl.run_pipeline(
-            dataset_current_file=dataset_current_file,
-            resi_current_file=resi_current_file,
-            dataset_old_file=dataset_old_file,
-            resi_old_file=resi_old_file,
-            anagrafica_file=anagrafica_file,
-            perimetro=perimetro,
-            col_sito_nazione=col_sito_nazione,
-            progress=on_progress,
-        )
-        progress_bar.progress(1.0, text="Completato.")
-        st.session_state["pipeline"] = result
-        st.session_state["perimetro_label"] = perimetro_label
-    except MemoryError:
-        st.error(
-            "⚠️ Memoria esaurita durante l'elaborazione. Se i file sono molto grandi "
-            "(centinaia di migliaia di righe ciascuno), prova a generare prima solo l'anno "
-            "corrente (senza DATASET OLD/RESI OLD), oppure valuta un piano Streamlit Cloud "
-            "con più RAM del tier gratuito."
-        )
-        st.stop()
-    except Exception as e:
-        st.exception(e)
-        st.stop()
+    from core import engine
+    anagrafica = (engine.load_anagrafica(st.session_state["anagrafica_file"])
+                  if st.session_state.get("anagrafica_file") else {})
+    with st.spinner("Interrogazione DB…"):
+        try:
+            result = pl.build_pipeline_from_db(
+                conn,
+                periodo_current=periodo_a,
+                periodo_old=periodo_b if (confronta and periodo_b_ok) else None,
+                perimetro=perimetro,
+                anagrafica=anagrafica,
+            )
+            st.session_state["pipeline"] = result
+            st.session_state["perimetro_label"] = perimetro_label
+            st.session_state["periodo_a_label"] = f"{periodo_a[0]} → {periodo_a[1]}"
+            st.session_state["periodo_b_label"] = f"{periodo_b[0]} → {periodo_b[1]}" if (confronta and periodo_b_ok) else None
+        except Exception as e:
+            st.exception(e)
+            st.stop()
 
 pipe = st.session_state.get("pipeline")
 
 if pipe is None:
-    st.info(
-        "⬅️ Carica almeno **DATASET** e **RESI** dell'anno corrente nella barra laterale, "
-        "scegli il perimetro logistico e premi **Genera dati report**.\n\n"
-        "I report Y2Y, Collezioni, Codici, Carryover e Sell-Through richiedono anche i file "
-        "dell'anno precedente / BUYING (caricabili nella pagina Sell-Through)."
-    )
+    st.info("⬅️ Scegli il periodo (ed eventualmente quello di confronto) e premi **Genera dati report**.")
 else:
-    diag_pre = pipe.diag_pre_filtro
-    diag_post = pipe.diag_post_filtro
-    st.success("✅ Dati elaborati con successo. Naviga tra i report dal menu a sinistra.")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Perimetro selezionato", st.session_state.get("perimetro_label", ""))
-    c2.metric("Righe DATASET post-filtro", f"{len(pipe.current_data):,}".replace(",", "."))
-    c3.metric("Righe DATASET OLD post-filtro", f"{len(pipe.old_data):,}".replace(",", "."))
-
-    with st.expander("📊 Diagnostica canali logistici (DIRETTO vs ESTERNA)"):
-        st.write(
-            f"**Pre-filtro** → DIRETTO: {diag_pre['righeDiretti']} righe / {diag_pre['ordiniDiretti']} ordini "
-            f"— ESTERNA: {diag_pre['righeEsterni']} righe / {diag_pre['ordiniEsterni']} ordini"
-        )
-        st.write(
-            f"**Post-filtro** → DIRETTO: {diag_post['righeDiretti']} righe / {diag_post['ordiniDiretti']} ordini "
-            f"— ESTERNA: {diag_post['righeEsterni']} righe / {diag_post['ordiniEsterni']} ordini"
-        )
-        st.caption(
-            "Se ESTERNA risulta 0 anche quando sai che esistono ordini ZFS/FBA/AMZ, il problema "
-            "è nel formato/colonna di ORDINE_ID (colonna I del CSV), non nel filtro perimetro."
-        )
-
-    esito = pipe.esito_resi_current
-    r1, r2, r3, r4 = st.columns(4)
-    r1.metric("Resi riconciliati (convertiti)", len(esito["convertiti"]))
-    r2.metric("Resi duplicati scartati", len(esito["duplicati"]))
-    r3.metric("Rimborsi extra (standalone)", len(esito["standalone"]))
-    r4.metric("Resi fuori periodo", len(esito["fuoriPeriodo"]))
+    st.success(
+        f"✅ Dati pronti — periodo corrente **{st.session_state['periodo_a_label']}**"
+        + (f", confronto **{st.session_state['periodo_b_label']}**" if st.session_state.get("periodo_b_label") else "")
+        + ". Naviga tra i report dal menu a sinistra."
+    )
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Righe periodo corrente", f"{len(pipe.current_data):,}".replace(",", "."))
+    m2.metric("Righe periodo confronto", f"{len(pipe.old_data):,}".replace(",", "."))
+    m3.metric("Rimborsi extra nel periodo", f"{len(pipe.esito_resi_current['standalone']):,}".replace(",", "."))
+    st.caption(
+        "\"Rimborsi extra\" = ordini rimborsati nel periodo corrente ma spediti prima (o senza "
+        "spedito noto): riducono il fatturato netto reale del periodo pur non essendo conteggiati "
+        "come vendita del periodo stesso."
+    )
