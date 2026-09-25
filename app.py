@@ -36,8 +36,10 @@ def _shift_year(d: dt.date, years: int) -> dt.date:
 
 
 with st.sidebar:
-    st.session_state["periodo_a"]
     st.header("1️⃣ Periodo di analisi")
+    if not st.session_state["periodo_a"]:
+        st.session_state["periodo_a"] = periodo_a
+        
     periodo_a = st.date_input(
         "Periodo corrente", value=(max(data_min, _shift_year(data_max, -1)), data_max),
         min_value=data_min, max_value=data_max, key="periodo_a",
