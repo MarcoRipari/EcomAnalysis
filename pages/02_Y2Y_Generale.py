@@ -28,7 +28,7 @@ resi_standalone_old = pipe.esito_resi_old["standalone"]
 # --- Confronto opzionale a 3 vie (solo su questa pagina): "due anni precedenti", calcolato
 # automaticamente spostando di un altro anno il periodo scelto in home — non richiede una
 # terza selezione di date, per non appesantire la home per gli altri report che restano a 2.
-periodo_a = st.session_state.get("periodo_a")
+periodo_a = st.session_state.get("sel_periodo_a")
 mostra_3_vie = False
 if periodo_a and isinstance(periodo_a, tuple) and len(periodo_a) == 2:
     mostra_3_vie = st.checkbox("Aggiungi confronto con 'Due anni precedenti' (calcolato automaticamente)",
