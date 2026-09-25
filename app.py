@@ -84,8 +84,8 @@ if genera:
             )
             st.session_state["pipeline"] = result
             st.session_state["perimetro_label"] = perimetro_label
-            st.session_state["periodo_a"] = periodo_a
-            st.session_state["periodo_b"] = periodo_b if (confronta and periodo_b_ok) else None
+            st.session_state["sel_periodo_a"] = periodo_a
+            st.session_state["sel_periodo_b"] = periodo_b if (confronta and periodo_b_ok) else None
             st.session_state["periodo_a_label"] = f"{periodo_a[0]} → {periodo_a[1]}"
             st.session_state["periodo_b_label"] = f"{periodo_b[0]} → {periodo_b[1]}" if (confronta and periodo_b_ok) else None
         except Exception as e:
