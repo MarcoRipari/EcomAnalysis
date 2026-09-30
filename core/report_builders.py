@@ -4,8 +4,6 @@ reports.gs e tables.gs. Ogni funzione ritorna strutture dati semplici (dict / Da
 pronte per essere renderizzate da una pagina Streamlit con st.dataframe / st.metric /
 st.plotly_chart, al posto delle chiamate SpreadsheetApp dell'originale.
 """
-import logging
-
 from __future__ import annotations
 
 import pandas as pd
@@ -15,6 +13,7 @@ from . import aggregations as agg
 from . import config as CFG
 from . import formatting as fmt
 
+import logging
 logging.basicConfig(level=logging.INFO)
 
 def var_pct(curr: float, old: float) -> float:
