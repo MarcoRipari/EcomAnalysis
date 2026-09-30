@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 
 from core import report_builders as rb
 from core import db
@@ -18,6 +19,37 @@ st.caption(
     "range (standalone) che invece entrano nel Fatturato Netto Totale della pagina Nazioni: "
     "i totali delle due pagine differiscono per costruzione."
 )
+
+
+def _df_to_md(df: pd.DataFrame) -> str:
+    """Tabella Markdown dal report unificato: le colonne % nel DataFrame sono frazioni
+    0-1 e qui vengono rese come xx.x%; importi con 2 decimali, conteggi interi,
+    valori mancanti (NaN) come em-dash. I '|' nel testo vengono sostituiti per non
+    rompere la tabella."""
+    pct_cols = {"Share %", "Reso %", "Reso % (valore)", "Var % Fatturato YoY",
+                "Var % Ordini YoY", "Margine %"}
+    eur_cols = {"Fatturato Netto", "Scontrino Medio", "Margine Lordo"}
+    int_cols = {"Ordini", "Paia spedite", "Paia rese", "Paia nette"}
+
+    def cell(col: str, v) -> str:
+        if pd.isna(v):
+            return "—"
+        if col in pct_cols:
+            return f"{float(v) * 100:,.1f}%"
+        if col in eur_cols:
+            return f"{float(v):,.2f}"
+        if col in int_cols:
+            return f"{int(round(float(v))):,}"
+        return str(v).replace("|", "/")
+
+    cols = list(df.columns)
+    righe = [
+        "| " + " | ".join(str(c) for c in cols) + " |",
+        "|" + "|".join(["---"] * len(cols)) + "|",
+    ]
+    for _, row in df.iterrows():
+        righe.append("| " + " | ".join(cell(c, row[c]) for c in cols) + " |")
+    return "\n".join(righe)
 
 pipe = guard_pipeline()
 
@@ -60,30 +92,49 @@ if ha_confronto:
 if mostra_3_anno:
     periodi_report.append((y_2anni, data_2anni))
 
+# La tabella è nascosta di default: con il checkbox deselezionato il report non viene
+# né calcolato né renderizzato, quindi l'apertura della pagina è più rapida (le letture
+# dal DB in guard_pipeline restano comunque). Spunta il checkbox per vedere la tabella
+# e i pulsanti di download.
+if not st.checkbox("Mostra la tabella unificata", value=False):
+    st.caption("Tabella nascosta: spunta il checkbox per calcolare e mostrare il report (con i pulsanti CSV e MD).")
+    st.stop()
+
 unificata = rb.nazioni_unified_report(periodi_report, nazioni_scelte)
 if unificata.empty:
     st.caption("Nessun dato disponibile per il report unificato.")
-else:
-    cfg_unificata = {
-        "Fatturato Netto": currency_col(),
-        "Share %": percent_col(),
-        "Scontrino Medio": currency_col(),
-        "Ordini": number_col(),
-        "Paia spedite": number_col(),
-        "Paia rese": number_col(),
-        "Paia nette": number_col(),
-        "Reso %": percent_col(),
-        "Reso % (valore)": percent_col(),
-        "Var % Fatturato YoY": percent_col(),
-        "Var % Ordini YoY": percent_col(),
-        "Margine Lordo": currency_col(),
-        "Margine %": percent_col(),
-    }
-    cfg_unificata = {k: v for k, v in cfg_unificata.items() if k in unificata.columns}
-    st.dataframe(unificata, hide_index=True, use_container_width=True, column_config=cfg_unificata)
+    st.stop()
+
+cfg_unificata = {
+    "Fatturato Netto": currency_col(),
+    "Share %": percent_col(),
+    "Scontrino Medio": currency_col(),
+    "Ordini": number_col(),
+    "Paia spedite": number_col(),
+    "Paia rese": number_col(),
+    "Paia nette": number_col(),
+    "Reso %": percent_col(),
+    "Reso % (valore)": percent_col(),
+    "Var % Fatturato YoY": percent_col(),
+    "Var % Ordini YoY": percent_col(),
+    "Margine Lordo": currency_col(),
+    "Margine %": percent_col(),
+}
+cfg_unificata = {k: v for k, v in cfg_unificata.items() if k in unificata.columns}
+st.dataframe(unificata, hide_index=True, use_container_width=True, column_config=cfg_unificata)
+
+col_csv, col_md = st.columns(2)
+with col_csv:
     st.download_button(
         "⬇️ Scarica il report unificato (CSV)",
         data=unificata.to_csv(index=False).encode("utf-8-sig"),
         file_name="report_unificato_nazioni.csv",
         mime="text/csv",
-    )Re
+    )
+with col_md:
+    st.download_button(
+        "⬇️ Scarica il report unificato (MD)",
+        data=("# Report unificato nazioni — Marketplace × Nazione × Brand\n\n" + _df_to_md(unificata)).encode("utf-8"),
+        file_name="report_unificato_nazioni.md",
+        mime="text/markdown",
+    )
