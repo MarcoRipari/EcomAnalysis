@@ -419,15 +419,18 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
     if v.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
     g = v.groupby("clzMappata", sort=False, observed=True).agg({
+            "fatturatoSpedito": "sum",
+            "ordini": "sum",
             "nettoNetto": "sum",
             "paiaSpedite": "sum",
             "paiaRese": "sum",
-            "paiaNette": "sum"
+            "paiaNette": "sum",
         }).reset_index()
     g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto", "paiaSpedite": "Paia spedite", "paiaRese": "Paia rese", "paiaNette": "Paia nette"})
     tot = g["Fatturato Netto"].sum()
     g["Share %"] = g["Fatturato Netto"] / tot if tot != 0 else 0.0
     g["% Reso"] = np.where(g["Paia spedite"] > 0, g["Paia rese"] / g["Paia spedite"], 0.0)
+    g["Scontrino Medio"] = np.where(g["ordini"] > 0, g["fatturatoSpedito"] / g["ordini"], 0.0)
     return g.sort_values("Fatturato Netto", ascending=False).reset_index(drop=True)
 
 
