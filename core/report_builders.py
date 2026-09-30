@@ -424,7 +424,7 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
             "nettoNetto": "sum",
             "paiaSpedite": "sum",
             "paiaRese": "sum",
-            "paiaNette": "sum",
+            "paiaNette": "sum"
         }).reset_index()
     g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto", "paiaSpedite": "Paia spedite", "paiaRese": "Paia rese", "paiaNette": "Paia nette"})
     tot = g["Fatturato Netto"].sum()
