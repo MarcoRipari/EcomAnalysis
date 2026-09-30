@@ -7,7 +7,7 @@ from core.ui_helpers import shift_year
 
 st.set_page_config(page_title="Pannello Report E-commerce", page_icon="🚀", layout="wide")
 
-st.title("🚀 Pannello Report — E-commerce BI2")
+st.title("🚀 Pannello Report — E-commerce BI")
 st.caption(
     "I dati vivono nel DB (pagina **⬆️ Carica Dati**): qui scegli solo il periodo da "
     "analizzare — nessun file da ricaricare ad ogni report."
