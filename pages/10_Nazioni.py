@@ -20,6 +20,19 @@ old_data = pipe.old_data
 standalone_current = pipe.esito_resi_current["standalone"]
 standalone_old = pipe.esito_resi_old["standalone"]
 
+mostra_3_anni = False
+periodo_a = st.session_state.get("sel_periodo_a")
+y_2anni = None
+data_2anni, standalone_2anni = current_data.iloc[0:0], standalone_current.iloc[0:0]
+periodo_c = (shift_year(periodo_a[0], -2), shift_year(periodo_a[1], -2))
+conn = db.connect()
+data_2anni, standalone_2anni = db.query_period(conn, *periodo_c, pipe.perimetro)
+y_2anni = period_labels(3)[2]
+
+st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
+if data_2anni.empty:
+    st.caption("Nessun dato nel DB per 'due anni precedenti': il confronto a 3 vie resterà vuoto.")
+
 opzioni_nazioni = rb.nazioni_disponibili(current_data, old_data)
 if not opzioni_nazioni:
     st.caption("Nessuna nazione trovata nel periodo selezionato.")
