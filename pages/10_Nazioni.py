@@ -121,3 +121,37 @@ for tab, naz in zip(tabs, nazioni_scelte):
                 "% Reso": percent_col(),
                 "Scontrino Medio": currency_col(),
             })
+
+st.divider()
+st.subheader("📊 Report unificato 3 anni — Marketplace × Nazione × Brand")
+st.caption(
+    "Un report per ciascun anno di confronto con righe aggregate per scope: "
+    "DETAIL, MARKETPLACE_COUNTRY, MARKETPLACE_BRAND, COUNTRY_BRAND, GLOBAL_MARKETPLACE, "
+    "GLOBAL_COUNTRY, GLOBAL_BRAND, GLOBAL. Le nazioni di dettaglio seguono il selettore "
+    "'Nazioni da comparare'; le righe GLOBAL sono sempre presenti."
+)
+periodi_report = [(y_curr, current_data)]
+if ha_confronto:
+    periodi_report.append((y_old, old_data))
+if mostra_3_anno:
+    periodi_report.append((y_2anni, data_2anni))
+unificata = rb.nazioni_unified_report(periodi_report, nazioni_scelte)
+if unificata.empty:
+    st.caption("Nessun dato disponibile per il report unificato.")
+else:
+    st.dataframe(unificata, hide_index=True, use_container_width=True, column_config={
+        "Fatturato Netto": currency_col(),
+        "Share %": percent_col(),
+        "Scontrino Medio": currency_col(),
+        "Ordini": number_col(),
+        "Paia spedite": number_col(),
+        "Paia rese": number_col(),
+        "Paia nette": number_col(),
+        "Reso %": percent_col(),
+    })
+    st.download_button(
+        "⬇️ Scarica il report unificato (CSV)",
+        data=unificata.to_csv(index=False).encode("utf-8-sig"),
+        file_name="report_unificato_nazioni.csv",
+        mime="text/csv",
+    )
