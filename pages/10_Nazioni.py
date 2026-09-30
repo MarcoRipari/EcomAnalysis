@@ -1,7 +1,7 @@
 import streamlit as st
 
 from core import report_builders as rb
-from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col, period_labels
+from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col, period_labels, shift_year
 
 st.set_page_config(page_title="Nazioni", page_icon="🌍", layout="wide")
 st.title("🌍 Comparativa Nazioni")
