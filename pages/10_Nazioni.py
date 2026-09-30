@@ -80,11 +80,23 @@ st.subheader("🏷️ Share del fatturato per brand, per nazione")
 tabs = st.tabs(nazioni_scelte)
 for tab, naz in zip(tabs, nazioni_scelte):
     with tab:
-        col1, col2 = st.columns(2) if ha_confronto else (st.container(), None)
-        with col1:
-            st.caption(y_curr)
-            share_curr = rb.nazioni_brand_share(current_data, naz)
-            st.dataframe(share_curr, hide_index=True, use_container_width=True, column_config={
+        #col1, col2 = st.columns(2) if ha_confronto else (st.container(), None)
+        st.caption(y_curr)
+        share_curr = rb.nazioni_brand_share(current_data, naz)
+        st.dataframe(share_curr, hide_index=True, use_container_width=True, column_config={
+            "Fatturato Netto": currency_col(),
+            "Ordini": number_col(),
+            "Share %": percent_col(),
+            "Paia spedite": number_col(),
+            "Paia rese": number_col(),
+            "Paia nette": number_col(),
+            "% Reso": percent_col(),
+            "Scontrino Medio": currency_col(),
+        })
+        if ha_confronto:
+            st.caption(y_old)
+            share_old = rb.nazioni_brand_share(old_data, naz)
+            st.dataframe(share_old, hide_index=True, use_container_width=True, column_config={
                 "Fatturato Netto": currency_col(),
                 "Ordini": number_col(),
                 "Share %": percent_col(),
@@ -94,17 +106,3 @@ for tab, naz in zip(tabs, nazioni_scelte):
                 "% Reso": percent_col(),
                 "Scontrino Medio": currency_col(),
             })
-        if ha_confronto:
-            with col2:
-                st.caption(y_old)
-                share_old = rb.nazioni_brand_share(old_data, naz)
-                st.dataframe(share_old, hide_index=True, use_container_width=True, column_config={
-                    "Fatturato Netto": currency_col(),
-                    "Ordini": number_col(),
-                    "Share %": percent_col(),
-                    "Paia spedite": number_col(),
-                    "Paia rese": number_col(),
-                    "Paia nette": number_col(),
-                    "% Reso": percent_col(),
-                    "Scontrino Medio": currency_col(),
-                })
