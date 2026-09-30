@@ -4,6 +4,8 @@ reports.gs e tables.gs. Ogni funzione ritorna strutture dati semplici (dict / Da
 pronte per essere renderizzate da una pagina Streamlit con st.dataframe / st.metric /
 st.plotly_chart, al posto delle chiamate SpreadsheetApp dell'originale.
 """
+import logging
+logging.basicConfig(level=logging.INFO)
 
 from __future__ import annotations
 
@@ -415,6 +417,8 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
     if venduto.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
     v = venduto[venduto["nazione"].astype(str) == nazione]
+    
+    logging.info(f"Colonne DataFrame: {v.columns.tolist()}")
     
     if v.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
