@@ -415,7 +415,11 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
     """Share % del fatturato netto per brand (clzMappata), per una singola nazione."""
     if venduto.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
-    v = venduto[venduto["nazione"].astype(str) == nazione]
+
+    if nazione == "GLOBAL":
+        v = venduto
+    else:
+        v = venduto[venduto["nazione"].astype(str) == nazione]
     
     if v.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
