@@ -128,7 +128,8 @@ st.caption(
     "Un report per ciascun anno di confronto con righe aggregate per scope: "
     "DETAIL, MARKETPLACE_COUNTRY, MARKETPLACE_BRAND, COUNTRY_BRAND, GLOBAL_MARKETPLACE, "
     "GLOBAL_COUNTRY, GLOBAL_BRAND, GLOBAL. Le nazioni di dettaglio seguono il selettore "
-    "'Nazioni da comparare'; le righe GLOBAL sono sempre presenti."
+    "'Nazioni da comparare'; le righe GLOBAL sono sempre presenti. "
+    "Share % = peso sul fatturato GLOBAL dello stesso anno."
 )
 periodi_report = [(y_curr, current_data)]
 if ha_confronto:
