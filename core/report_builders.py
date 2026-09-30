@@ -486,9 +486,9 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
     KPI sui soli dati venduto (stessa semantica di nazioni_brand_share):
       Fatturato Netto = somma nettoNetto · Ordini = ordineId distinti non vuoti
       Scontrino Medio = lordoSpedito / Ordini · Reso % = paiaRese / paiaSpedite
-    Share % = quota del brand sul totale del gruppo di riferimento della riga:
-    (marketplace × nazione) per DETAIL, marketplace per MARKETPLACE_BRAND, nazione per
-    COUNTRY_BRAND; per le righe con Brand = GLOBAL (e per GLOBAL_BRAND / GLOBAL) vale 100%.
+    Share % = Fatturato Netto della riga / Fatturato Netto GLOBAL dello stesso anno: peso
+    della combinazione (marketplace, nazione, brand o aggregato) sul totale azienda del
+    periodo — la riga GLOBAL vale quindi 100%.
     """
     cols = ["Anno", "Marketplace", "Nazione", "Brand", "Fatturato Netto", "Share %",
             "Scontrino Medio", "Ordini", "Paia spedite", "Paia rese", "Paia nette", "Reso %", "Scope"]
@@ -518,11 +518,11 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
             )
 
         g_det = _agg_by(["_mkp", "_naz", "_brand"])   # DETAIL
-        g_mc = _agg_by(["_mkp", "_naz"])              # MARKETPLACE_COUNTRY (+ denominatore share DETAIL)
+        g_mc = _agg_by(["_mkp", "_naz"])              # MARKETPLACE_COUNTRY
         g_mb = _agg_by(["_mkp", "_brand"])            # MARKETPLACE_BRAND
-        g_m = _agg_by(["_mkp"])                       # GLOBAL_MARKETPLACE (+ denominatore share MARKETPLACE_BRAND)
+        g_m = _agg_by(["_mkp"])                       # GLOBAL_MARKETPLACE
         g_cb = _agg_by(["_naz", "_brand"])            # COUNTRY_BRAND
-        g_c = _agg_by(["_naz"])                       # GLOBAL_COUNTRY (+ denominatore share COUNTRY_BRAND)
+        g_c = _agg_by(["_naz"])                       # GLOBAL_COUNTRY
         g_gb = _agg_by(["_brand"])                    # GLOBAL_BRAND
         tot = {                                       # GLOBAL
             "fatt": float(work["nettoNetto"].sum()),
@@ -557,37 +557,37 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
         # DETAIL — singola combinazione marketplace × nazione × brand
         for (m, c, b), k in g_det.iterrows():
             if c in nazioni_specifiche:
-                _row("DETAIL", m, c, b, k, _share(k["fatt"], g_mc.loc[(m, c), "fatt"]))
+                _row("DETAIL", m, c, b, k, _share(k["fatt"], tot["fatt"]))
 
         # MARKETPLACE_COUNTRY — tutti i brand di (marketplace, nazione)
         for (m, c), k in g_mc.iterrows():
             if c in nazioni_specifiche:
-                _row("MARKETPLACE_COUNTRY", m, c, "GLOBAL", k, 1.0)
+                _row("MARKETPLACE_COUNTRY", m, c, "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
 
         # MARKETPLACE_BRAND — brand su tutti i Paesi del marketplace
         for (m, b), k in g_mb.iterrows():
-            _row("MARKETPLACE_BRAND", m, "GLOBAL", b, k, _share(k["fatt"], g_m.loc[m, "fatt"]))
+            _row("MARKETPLACE_BRAND", m, "GLOBAL", b, k, _share(k["fatt"], tot["fatt"]))
 
         # COUNTRY_BRAND — brand in nazione su tutti i marketplace
         for (c, b), k in g_cb.iterrows():
             if c in nazioni_specifiche:
-                _row("COUNTRY_BRAND", "GLOBAL", c, b, k, _share(k["fatt"], g_c.loc[c, "fatt"]))
+                _row("COUNTRY_BRAND", "GLOBAL", c, b, k, _share(k["fatt"], tot["fatt"]))
 
         # GLOBAL_MARKETPLACE — tutto il marketplace
         for m, k in g_m.iterrows():
-            _row("GLOBAL_MARKETPLACE", m, "GLOBAL", "GLOBAL", k, 1.0)
+            _row("GLOBAL_MARKETPLACE", m, "GLOBAL", "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
 
         # GLOBAL_COUNTRY — tutto il business della nazione
         for c, k in g_c.iterrows():
             if c in nazioni_specifiche:
-                _row("GLOBAL_COUNTRY", "GLOBAL", c, "GLOBAL", k, 1.0)
+                _row("GLOBAL_COUNTRY", "GLOBAL", c, "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
 
         # GLOBAL_BRAND — brand totale
         for b, k in g_gb.iterrows():
-            _row("GLOBAL_BRAND", "GLOBAL", "GLOBAL", b, k, 1.0)
+            _row("GLOBAL_BRAND", "GLOBAL", "GLOBAL", b, k, _share(k["fatt"], tot["fatt"]))
 
         # GLOBAL — totale azienda
-        _row("GLOBAL", "GLOBAL", "GLOBAL", "GLOBAL", tot, 1.0)
+        _row("GLOBAL", "GLOBAL", "GLOBAL", "GLOBAL", tot, _share(tot["fatt"], tot["fatt"]))
 
     if not rows:
         return pd.DataFrame(columns=cols)
