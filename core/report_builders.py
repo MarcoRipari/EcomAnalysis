@@ -461,6 +461,19 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
 # Report unificato Marketplace × Nazione × Brand — pagina "Nazioni" (confronto 3 anni)
 # --------------------------------------------------------------------------------------
 
+# --- Margini & commissioni marketplace (predisposizione, ATTUALMENTE DISATTIVATA) --------
+# Struttura pronta per il calcolo del margine nel report unificato. Quando i dati delle
+# commissioni marketplace saranno disponibili: compilare COMMISSIONI_MKP con la quota di
+# commissione applicata al fatturato netto per marketplace (es. {"ZALANDO": 0.25}) e
+# impostare ABILITA_MARGINI = True: il report aggiungerà le colonne "Margine Lordo" (€) e
+# "Margine %". Negli scope con marketplace GLOBAL la commissione è la media pesata sul
+# fatturato dei marketplace sottostanti, quindi anche le righe GLOBAL restano coerenti.
+# Finché i dati non ci sono, le colonne non compaiono nel report.
+ABILITA_MARGINI = False
+COMMISSIONI_MKP: dict[str, float] = {}   # marketplace -> commissione sul netto (0–1)
+COMMISSIONE_DEFAULT = 0.0                # marketplace assente dalla mappa
+
+
 def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scelte: list[str]) -> pd.DataFrame:
     """
     Report unificato Marketplace × Nazione × Brand: per ogni periodo in `periodi` (lista di
@@ -486,12 +499,25 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
     KPI sui soli dati venduto (stessa semantica di nazioni_brand_share):
       Fatturato Netto = somma nettoNetto · Ordini = ordineId distinti non vuoti
       Scontrino Medio = lordoSpedito / Ordini · Reso % = paiaRese / paiaSpedite
+      Reso % (valore) = nettoReso / nettoSpedito — entrambi positivi per costruzione in
+      engine.py (nettoNetto = nettoSpedito - nettoReso): è il peso del reso sul valore
+      spedito, complementare a Reso % che invece è a paia.
     Share % = Fatturato Netto della riga / Fatturato Netto GLOBAL dello stesso anno: peso
     della combinazione (marketplace, nazione, brand o aggregato) sul totale azienda del
     periodo — la riga GLOBAL vale quindi 100%.
+    Var % Fatturato YoY / Var % Ordini YoY = confronto con la riga dello stesso scope e
+    della stessa combinazione del periodo precedente (i periodi sono attesi in ordine
+    [corrente, -1 anno, -2 anni], quindi il periodo i confronta con il periodo i+1). Se la
+    combinazione non esisteva l'anno prima, la Var % resta vuota (NaN) invece di forzare un
+    +100%. La somma delle righe NON fa il totale azienda per Ordini e Scontrino Medio
+    (ordini deduplicati per ordineId); il Fatturato invece somma esattamente.
+    Con ABILITA_MARGINI = True (vedi sopra) vengono aggiunte "Margine Lordo" e "Margine %".
     """
     cols = ["Anno", "Marketplace", "Nazione", "Brand", "Fatturato Netto", "Share %",
-            "Scontrino Medio", "Ordini", "Paia spedite", "Paia rese", "Paia nette", "Reso %", "Scope"]
+            "Scontrino Medio", "Ordini", "Paia spedite", "Paia rese", "Paia nette",
+            "Reso %", "Reso % (valore)", "Var % Fatturato YoY", "Var % Ordini YoY", "Scope"]
+    if ABILITA_MARGINI:
+        cols = cols[:-1] + ["Margine Lordo", "Margine %", "Scope"]
 
     nazioni_specifiche = {n for n in (nazioni_scelte or []) if n != "GLOBAL"}
     rows: list[dict] = []
@@ -506,16 +532,25 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
         work["_brand"] = work["clzMappata"].fillna("").astype(str).replace("", "ALTRO")
         # ordineId vuoto non deve contare come ordine: NaN viene ignorato da nunique
         work["_ord"] = work["ordineId"].where(work["ordineId"] != "")
+        # commissione per riga: permette la media pesata sul fatturato negli scope aggregati
+        if ABILITA_MARGINI:
+            work["_nettoComm"] = work["nettoNetto"] * work["_mkp"].map(
+                lambda m: COMMISSIONI_MKP.get(m, COMMISSIONE_DEFAULT))
 
         def _agg_by(keys: list[str]) -> pd.DataFrame:
-            return work.groupby(keys, sort=False, observed=True).agg(
-                fatt=("nettoNetto", "sum"),
-                lordo=("lordoSpedito", "sum"),
-                spedite=("paiaSpedite", "sum"),
-                rese=("paiaRese", "sum"),
-                nette=("paiaNette", "sum"),
-                ordini=("_ord", "nunique"),
-            )
+            aggs = {
+                "fatt": ("nettoNetto", "sum"),
+                "lordo": ("lordoSpedito", "sum"),
+                "fSped": ("nettoSpedito", "sum"),
+                "fReso": ("nettoReso", "sum"),
+                "spedite": ("paiaSpedite", "sum"),
+                "rese": ("paiaRese", "sum"),
+                "nette": ("paiaNette", "sum"),
+                "ordini": ("_ord", "nunique"),
+            }
+            if ABILITA_MARGINI:
+                aggs["fComm"] = ("_nettoComm", "sum")
+            return work.groupby(keys, sort=False, observed=True).agg(**aggs)
 
         g_det = _agg_by(["_mkp", "_naz", "_brand"])   # DETAIL
         g_mc = _agg_by(["_mkp", "_naz"])              # MARKETPLACE_COUNTRY
@@ -527,17 +562,22 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
         tot = {                                       # GLOBAL
             "fatt": float(work["nettoNetto"].sum()),
             "lordo": float(work["lordoSpedito"].sum()),
+            "fSped": float(work["nettoSpedito"].sum()),
+            "fReso": float(work["nettoReso"].sum()),
             "spedite": float(work["paiaSpedite"].sum()),
             "rese": float(work["paiaRese"].sum()),
             "nette": float(work["paiaNette"].sum()),
             "ordini": int(work["_ord"].nunique()),
         }
+        if ABILITA_MARGINI:
+            tot["fComm"] = float(work["_nettoComm"].sum())
 
         def _row(scope: str, mkp: str, naz: str, brand: str, k, share: float):
             ordini = int(k["ordini"])
             spedite = float(k["spedite"])
             rese = float(k["rese"])
-            rows.append({
+            f_sped = float(k["fSped"])
+            row = {
                 "Anno": label,
                 "Marketplace": mkp, "Nazione": naz, "Brand": brand,
                 "Fatturato Netto": float(k["fatt"]),
@@ -548,8 +588,15 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
                 "Paia rese": rese,
                 "Paia nette": float(k["nette"]),
                 "Reso %": (rese / spedite) if spedite > 0 else 0.0,
+                # nettoReso è positivo (vedi engine.py): rapporto diretto sul netto spedito
+                "Reso % (valore)": (float(k["fReso"]) / f_sped) if f_sped > 0 else 0.0,
                 "Scope": scope,
-            })
+            }
+            if ABILITA_MARGINI:
+                f_comm = float(k["fComm"])
+                row["Margine Lordo"] = row["Fatturato Netto"] - f_comm
+                row["Margine %"] = (row["Margine Lordo"] / row["Fatturato Netto"]) if row["Fatturato Netto"] > 0 else 0.0
+            rows.append(row)
 
         def _share(num: float, den: float) -> float:
             return num / den if den > 0 else 0.0
@@ -591,6 +638,27 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
 
     if not rows:
         return pd.DataFrame(columns=cols)
+
+    # Var % anno su anno — ciascun periodo confronta con il precedente (i periodi sono in
+    # ordine [corrente, -1 anno, -2 anni]: il periodo i confronta con il periodo i+1), sulla
+    # riga dello stesso scope e della stessa combinazione. Se l'anno prima la combinazione
+    # non esisteva la Var % resta vuota (NaN): la convenzione var_pct (+100% da zero) vale
+    # solo quando la riga dell'anno prima esiste ed è a zero.
+    labels = [lab for lab, _ in periodi]
+    pos = {lab: i for i, lab in enumerate(labels)}
+    by_key: dict[tuple, dict[str, tuple]] = {}
+    for r in rows:
+        by_key.setdefault((r["Marketplace"], r["Nazione"], r["Brand"], r["Scope"]), {})[r["Anno"]] = (
+            r["Fatturato Netto"], r["Ordini"])
+    for r in rows:
+        i = pos.get(r["Anno"], -1)
+        if i < 0 or i + 1 >= len(labels):
+            continue
+        prev = by_key[(r["Marketplace"], r["Nazione"], r["Brand"], r["Scope"])].get(labels[i + 1])
+        if prev is None:
+            continue
+        r["Var % Fatturato YoY"] = var_pct(r["Fatturato Netto"], prev[0])
+        r["Var % Ordini YoY"] = var_pct(r["Ordini"], prev[1])
 
     out = pd.DataFrame(rows, columns=cols)
     anno_order = {label: i for i, (label, _) in enumerate(periodi)}
