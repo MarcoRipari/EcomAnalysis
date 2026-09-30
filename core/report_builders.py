@@ -411,7 +411,7 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
     v = venduto[venduto["nazione"].astype(str) == nazione]
     if v.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
-    g = v.groupby("clzMappata", sort=False, observed=True)["nettoNetto"].sum().reset_index()
+    #g = v.groupby("clzMappata", sort=False, observed=True)["nettoNetto"].sum().reset_index()
     g = v.groupby("clzMappata", sort=False, observed=True)["nettoNetto", "paiaSpedite", "paiaRese", "paiaNette"].sum().reset_index()
     g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto"})
     tot = g["Fatturato Netto"].sum()
