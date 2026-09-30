@@ -21,7 +21,7 @@ old_data = pipe.old_data
 standalone_current = pipe.esito_resi_current["standalone"]
 standalone_old = pipe.esito_resi_old["standalone"]
 
-mostra_3_anni = False
+mostra_3_anno = False
 periodo_a = st.session_state.get("sel_periodo_a")
 y_2anni = None
 data_2anni, standalone_2anni = current_data.iloc[0:0], standalone_current.iloc[0:0]
@@ -29,6 +29,8 @@ periodo_c = (shift_year(periodo_a[0], -2), shift_year(periodo_a[1], -2))
 conn = db.connect()
 data_2anni, standalone_2anni = db.query_period(conn, *periodo_c, pipe.perimetro)
 y_2anni = period_labels(3)[2]
+if not data_2anni.empty:
+    mostra_3_anno = True
 
 st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
 if data_2anni.empty:
@@ -97,6 +99,19 @@ for tab, naz in zip(tabs, nazioni_scelte):
             st.caption(y_old)
             share_old = rb.nazioni_brand_share(old_data, naz)
             st.dataframe(share_old, hide_index=True, use_container_width=True, column_config={
+                "Fatturato Netto": currency_col(),
+                "Ordini": number_col(),
+                "Share %": percent_col(),
+                "Paia spedite": number_col(),
+                "Paia rese": number_col(),
+                "Paia nette": number_col(),
+                "% Reso": percent_col(),
+                "Scontrino Medio": currency_col(),
+            })
+        if mostra_3_anno:
+            st.caption(y_2anni)
+            share_old2 = rb.nazioni_brand_share(data_2anni, naz)
+            st.dataframe(share_old2, hide_index=True, use_container_width=True, column_config={
                 "Fatturato Netto": currency_col(),
                 "Ordini": number_col(),
                 "Share %": percent_col(),
