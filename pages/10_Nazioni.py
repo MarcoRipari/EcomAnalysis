@@ -71,6 +71,7 @@ for tab, naz in zip(tabs, nazioni_scelte):
             share_curr = rb.nazioni_brand_share(current_data, naz)
             st.dataframe(share_curr, hide_index=True, use_container_width=True, column_config={
                 "Fatturato Netto": currency_col(),
+                "Ordini": number_col(),
                 "Share %": percent_col(),
                 "Paia spedite": number_col(),
                 "Paia rese": number_col(),
@@ -84,6 +85,7 @@ for tab, naz in zip(tabs, nazioni_scelte):
                 share_old = rb.nazioni_brand_share(old_data, naz)
                 st.dataframe(share_old, hide_index=True, use_container_width=True, column_config={
                     "Fatturato Netto": currency_col(),
+                    "Ordini": number_col(),
                     "Share %": percent_col(),
                     "Paia spedite": number_col(),
                     "Paia rese": number_col(),
