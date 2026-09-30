@@ -25,7 +25,8 @@ if not opzioni_nazioni:
     st.caption("Nessuna nazione trovata nel periodo selezionato.")
     st.stop()
 
-nazioni_scelte = st.multiselect("Nazioni da comparare", opzioni_nazioni, default=opzioni_nazioni[:5])
+opzioni_nazione.insert(0, "GLOBAL")
+nazioni_scelte = st.multiselect("Nazioni da comparare", opzioni_nazioni, default=["GLOBAL","IT","DE","FR","GB","US"])
 if not nazioni_scelte:
     st.info("Seleziona almeno una nazione.")
     st.stop()
