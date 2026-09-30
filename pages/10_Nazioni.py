@@ -77,5 +77,10 @@ for tab, naz in zip(tabs, nazioni_scelte):
                 st.caption(y_old)
                 share_old = rb.nazioni_brand_share(old_data, naz)
                 st.dataframe(share_old, hide_index=True, use_container_width=True, column_config={
-                    "Fatturato Netto": currency_col(), "Share %": percent_col(),
+                    "Fatturato Netto": currency_col(),
+                    "Share %": percent_col(),
+                    "Paia spedite": number_col(),
+                    "Paia rese": number_col(),
+                    "Paia nette": number_col(),
+                    "% Reso": percent_col(),
                 })
