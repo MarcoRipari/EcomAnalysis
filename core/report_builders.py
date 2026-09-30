@@ -414,7 +414,7 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
     if venduto.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
     v = venduto[venduto["nazione"].astype(str) == nazione]
-    console.log(v)
+    
     if v.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
     g = v.groupby("clzMappata", sort=False, observed=True).agg({
