@@ -421,7 +421,7 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
     g = v.groupby("clzMappata", sort=False, observed=True).agg({
             "lordoSpedito": "sum",
-            "ordineId": "ncount",
+            "ordineId": "nunique",
             "nettoNetto": "sum",
             "paiaSpedite": "sum",
             "paiaRese": "sum",
