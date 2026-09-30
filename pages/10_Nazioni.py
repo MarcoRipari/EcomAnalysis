@@ -88,4 +88,5 @@ for tab, naz in zip(tabs, nazioni_scelte):
                     "Paia rese": number_col(),
                     "Paia nette": number_col(),
                     "% Reso": percent_col(),
+                    "Scontrino Medio": currency_col(),
                 })
