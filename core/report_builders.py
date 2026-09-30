@@ -11,6 +11,7 @@ import pandas as pd
 
 from . import aggregations as agg
 from . import config as CFG
+from . import formatting as fmt
 
 
 def var_pct(curr: float, old: float) -> float:
@@ -29,16 +30,20 @@ def img_url(sku13: str) -> str:
 # --------------------------------------------------------------------------------------
 
 def kpi_block(kc: dict, ko: dict, y_curr: int, y_old: int) -> pd.DataFrame | None:
+    """Tabella KPI con METRICHE DI TIPO DIVERSO sulle righe (valuta/conteggio/percentuale) e i
+    periodi sulle colonne: i valori sono già formattati come stringa (stile italiano), perché
+    il column_config di Streamlit si applica per colonna e non può gestire tipi diversi riga
+    per riga nella stessa colonna."""
     if kc["ordini"] == 0 and ko["ordini"] == 0:
         return None
     rows = [
-        ("FATTURATO NETTO REALE", kc["fattReale"], ko["fattReale"]),
-        ("TOTALE ORDINI", kc["ordini"], ko["ordini"]),
-        ("PAIA NETTE VENDUTE", kc["paiaNette"], ko["paiaNette"]),
-        ("VALORE MEDIO PAIO", kc["valMedio"], ko["valMedio"]),
-        ("% RESO", kc["percReso"], ko["percReso"]),
+        ("FATTURATO NETTO REALE", kc["fattReale"], ko["fattReale"], "currency"),
+        ("TOTALE ORDINI", kc["ordini"], ko["ordini"], "number"),
+        ("PAIA NETTE VENDUTE", kc["paiaNette"], ko["paiaNette"], "number"),
+        ("VALORE MEDIO PAIO", kc["valMedio"], ko["valMedio"], "currency"),
+        ("% RESO", kc["percReso"], ko["percReso"], "percent"),
     ]
-    data = [(m, c, o, var_pct(c, o)) for m, c, o in rows]
+    data = [(m, fmt.fmt(c, k), fmt.fmt(o, k), fmt.fmt_percent(var_pct(c, o))) for m, c, o, k in rows]
     return pd.DataFrame(data, columns=["Metrica", str(y_curr), str(y_old), "Var % Y2Y"])
 
 
@@ -411,12 +416,10 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
     v = venduto[venduto["nazione"].astype(str) == nazione]
     if v.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
-    #g = v.groupby("clzMappata", sort=False, observed=True)["nettoNetto"].sum().reset_index()
-    g = v.groupby("clzMappata", sort=False, observed=True)["nettoNetto", "paiaSpedite", "paiaRese", "paiaNette"].sum().reset_index()
+    g = v.groupby("clzMappata", sort=False, observed=True)["nettoNetto"].sum().reset_index()
     g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto"})
     tot = g["Fatturato Netto"].sum()
     g["Share %"] = g["Fatturato Netto"] / tot if tot != 0 else 0.0
-    g["% Reso"] = g["paiaRese"] / g["paiaSpedite"] if g["paiaSpedite"] > 0 else 0.0
     return g.sort_values("Fatturato Netto", ascending=False).reset_index(drop=True)
 
 
