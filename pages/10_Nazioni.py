@@ -129,7 +129,12 @@ st.caption(
     "DETAIL, MARKETPLACE_COUNTRY, MARKETPLACE_BRAND, COUNTRY_BRAND, GLOBAL_MARKETPLACE, "
     "GLOBAL_COUNTRY, GLOBAL_BRAND, GLOBAL. Le nazioni di dettaglio seguono il selettore "
     "'Nazioni da comparare'; le righe GLOBAL sono sempre presenti. "
-    "Share % = peso sul fatturato GLOBAL dello stesso anno."
+    "Share % = peso sul fatturato GLOBAL dello stesso anno. "
+    "Var % YoY = confronto con l'anno precedente della stessa combinazione (vuota se "
+    "l'anno prima non esisteva). Reso % (valore) = netto reso / netto spedito. "
+    "Nota: il report usa solo dati venduto, quindi NON include i resi con spedizione "
+    "fuori range (standalone) che invece entrano nella tabella KPI per nazione: i totali "
+    "delle due tabelle differiscono per costruzione."
 )
 periodi_report = [(y_curr, current_data)]
 if ha_confronto:
@@ -140,7 +145,7 @@ unificata = rb.nazioni_unified_report(periodi_report, nazioni_scelte)
 if unificata.empty:
     st.caption("Nessun dato disponibile per il report unificato.")
 else:
-    st.dataframe(unificata, hide_index=True, use_container_width=True, column_config={
+    cfg_unificata = {
         "Fatturato Netto": currency_col(),
         "Share %": percent_col(),
         "Scontrino Medio": currency_col(),
@@ -149,7 +154,14 @@ else:
         "Paia rese": number_col(),
         "Paia nette": number_col(),
         "Reso %": percent_col(),
-    })
+        "Reso % (valore)": percent_col(),
+        "Var % Fatturato YoY": percent_col(),
+        "Var % Ordini YoY": percent_col(),
+        "Margine Lordo": currency_col(),
+        "Margine %": percent_col(),
+    }
+    cfg_unificata = {k: v for k, v in cfg_unificata.items() if k in unificata.columns}
+    st.dataframe(unificata, hide_index=True, use_container_width=True, column_config=cfg_unificata)
     st.download_button(
         "⬇️ Scarica il report unificato (CSV)",
         data=unificata.to_csv(index=False).encode("utf-8-sig"),
