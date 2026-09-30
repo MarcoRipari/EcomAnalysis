@@ -458,6 +458,153 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------------------
+# Report unificato Marketplace × Nazione × Brand — pagina "Nazioni" (confronto 3 anni)
+# --------------------------------------------------------------------------------------
+
+def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scelte: list[str]) -> pd.DataFrame:
+    """
+    Report unificato Marketplace × Nazione × Brand: per ogni periodo in `periodi` (lista di
+    coppie (etichetta, DataFrame venduto)) genera una riga per ogni combinazione marketplace ×
+    nazione × brand presente nei dati (scope DETAIL) più tutte le aggregazioni in cui una o più
+    dimensioni sono "collassate" a GLOBAL, identificate dallo Scope:
+
+    | Marketplace | Nazione | Brand  | Scope                |
+    | ----------- | ------- | ------ | -------------------- |
+    | Zalando     | IT      | Naturino | DETAIL             |
+    | Zalando     | IT      | GLOBAL | MARKETPLACE_COUNTRY  |
+    | Zalando     | GLOBAL  | Naturino | MARKETPLACE_BRAND  |
+    | GLOBAL      | IT      | Naturino | COUNTRY_BRAND      |
+    | Zalando     | GLOBAL  | GLOBAL | GLOBAL_MARKETPLACE  |
+    | GLOBAL      | IT      | GLOBAL | GLOBAL_COUNTRY      |
+    | GLOBAL      | GLOBAL  | Naturino | GLOBAL_BRAND       |
+    | GLOBAL      | GLOBAL  | GLOBAL | GLOBAL              |
+
+    Le nazioni di dettaglio sono limitate a `nazioni_scelte` (il valore "GLOBAL" del selettore
+    viene ignorato, perché lì indica l'aggregato); le righe aggregate GLOBAL sono sempre
+    generate, indipendentemente dal selettore.
+
+    KPI sui soli dati venduto (stessa semantica di nazioni_brand_share):
+      Fatturato Netto = somma nettoNetto · Ordini = ordineId distinti non vuoti
+      Scontrino Medio = lordoSpedito / Ordini · Reso % = paiaRese / paiaSpedite
+    Share % = quota del brand sul totale del gruppo di riferimento della riga:
+    (marketplace × nazione) per DETAIL, marketplace per MARKETPLACE_BRAND, nazione per
+    COUNTRY_BRAND; per le righe con Brand = GLOBAL (e per GLOBAL_BRAND / GLOBAL) vale 100%.
+    """
+    cols = ["Anno", "Marketplace", "Nazione", "Brand", "Fatturato Netto", "Share %",
+            "Scontrino Medio", "Ordini", "Paia spedite", "Paia rese", "Paia nette", "Reso %", "Scope"]
+
+    nazioni_specifiche = {n for n in (nazioni_scelte or []) if n != "GLOBAL"}
+    rows: list[dict] = []
+
+    for label, df in periodi:
+        if df is None or df.empty:
+            continue
+
+        work = df.copy()
+        work["_mkp"] = work["mkp"].astype(str)
+        work["_naz"] = work["nazione"].astype(str)
+        work["_brand"] = work["clzMappata"].fillna("").astype(str).replace("", "ALTRO")
+        # ordineId vuoto non deve contare come ordine: NaN viene ignorato da nunique
+        work["_ord"] = work["ordineId"].where(work["ordineId"] != "")
+
+        def _agg_by(keys: list[str]) -> pd.DataFrame:
+            return work.groupby(keys, sort=False, observed=True).agg(
+                fatt=("nettoNetto", "sum"),
+                lordo=("lordoSpedito", "sum"),
+                spedite=("paiaSpedite", "sum"),
+                rese=("paiaRese", "sum"),
+                nette=("paiaNette", "sum"),
+                ordini=("_ord", "nunique"),
+            )
+
+        g_det = _agg_by(["_mkp", "_naz", "_brand"])   # DETAIL
+        g_mc = _agg_by(["_mkp", "_naz"])              # MARKETPLACE_COUNTRY (+ denominatore share DETAIL)
+        g_mb = _agg_by(["_mkp", "_brand"])            # MARKETPLACE_BRAND
+        g_m = _agg_by(["_mkp"])                       # GLOBAL_MARKETPLACE (+ denominatore share MARKETPLACE_BRAND)
+        g_cb = _agg_by(["_naz", "_brand"])            # COUNTRY_BRAND
+        g_c = _agg_by(["_naz"])                       # GLOBAL_COUNTRY (+ denominatore share COUNTRY_BRAND)
+        g_gb = _agg_by(["_brand"])                    # GLOBAL_BRAND
+        tot = {                                       # GLOBAL
+            "fatt": float(work["nettoNetto"].sum()),
+            "lordo": float(work["lordoSpedito"].sum()),
+            "spedite": float(work["paiaSpedite"].sum()),
+            "rese": float(work["paiaRese"].sum()),
+            "nette": float(work["paiaNette"].sum()),
+            "ordini": int(work["_ord"].nunique()),
+        }
+
+        def _row(scope: str, mkp: str, naz: str, brand: str, k, share: float):
+            ordini = int(k["ordini"])
+            spedite = float(k["spedite"])
+            rese = float(k["rese"])
+            rows.append({
+                "Anno": label,
+                "Marketplace": mkp, "Nazione": naz, "Brand": brand,
+                "Fatturato Netto": float(k["fatt"]),
+                "Share %": share,
+                "Scontrino Medio": (float(k["lordo"]) / ordini) if ordini > 0 else 0.0,
+                "Ordini": ordini,
+                "Paia spedite": spedite,
+                "Paia rese": rese,
+                "Paia nette": float(k["nette"]),
+                "Reso %": (rese / spedite) if spedite > 0 else 0.0,
+                "Scope": scope,
+            })
+
+        def _share(num: float, den: float) -> float:
+            return num / den if den > 0 else 0.0
+
+        # DETAIL — singola combinazione marketplace × nazione × brand
+        for (m, c, b), k in g_det.iterrows():
+            if c in nazioni_specifiche:
+                _row("DETAIL", m, c, b, k, _share(k["fatt"], g_mc.loc[(m, c), "fatt"]))
+
+        # MARKETPLACE_COUNTRY — tutti i brand di (marketplace, nazione)
+        for (m, c), k in g_mc.iterrows():
+            if c in nazioni_specifiche:
+                _row("MARKETPLACE_COUNTRY", m, c, "GLOBAL", k, 1.0)
+
+        # MARKETPLACE_BRAND — brand su tutti i Paesi del marketplace
+        for (m, b), k in g_mb.iterrows():
+            _row("MARKETPLACE_BRAND", m, "GLOBAL", b, k, _share(k["fatt"], g_m.loc[m, "fatt"]))
+
+        # COUNTRY_BRAND — brand in nazione su tutti i marketplace
+        for (c, b), k in g_cb.iterrows():
+            if c in nazioni_specifiche:
+                _row("COUNTRY_BRAND", "GLOBAL", c, b, k, _share(k["fatt"], g_c.loc[c, "fatt"]))
+
+        # GLOBAL_MARKETPLACE — tutto il marketplace
+        for m, k in g_m.iterrows():
+            _row("GLOBAL_MARKETPLACE", m, "GLOBAL", "GLOBAL", k, 1.0)
+
+        # GLOBAL_COUNTRY — tutto il business della nazione
+        for c, k in g_c.iterrows():
+            if c in nazioni_specifiche:
+                _row("GLOBAL_COUNTRY", "GLOBAL", c, "GLOBAL", k, 1.0)
+
+        # GLOBAL_BRAND — brand totale
+        for b, k in g_gb.iterrows():
+            _row("GLOBAL_BRAND", "GLOBAL", "GLOBAL", b, k, 1.0)
+
+        # GLOBAL — totale azienda
+        _row("GLOBAL", "GLOBAL", "GLOBAL", "GLOBAL", tot, 1.0)
+
+    if not rows:
+        return pd.DataFrame(columns=cols)
+
+    out = pd.DataFrame(rows, columns=cols)
+    anno_order = {label: i for i, (label, _) in enumerate(periodi)}
+    scope_order = {s: i for i, s in enumerate(
+        ["DETAIL", "MARKETPLACE_COUNTRY", "MARKETPLACE_BRAND", "COUNTRY_BRAND",
+         "GLOBAL_MARKETPLACE", "GLOBAL_COUNTRY", "GLOBAL_BRAND", "GLOBAL"])}
+    out["_anno_ord"] = out["Anno"].map(anno_order)
+    out["_scope_ord"] = out["Scope"].map(scope_order)
+    out = out.sort_values(["_anno_ord", "_scope_ord", "Fatturato Netto"],
+                          ascending=[True, True, False], kind="mergesort")
+    return out.drop(columns=["_anno_ord", "_scope_ord"]).reset_index(drop=True)
+
+
+# --------------------------------------------------------------------------------------
 # Log riconciliazione — porting di generateLogRiconciliazioneModulo
 # --------------------------------------------------------------------------------------
 
