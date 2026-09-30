@@ -8,6 +8,7 @@ st.plotly_chart, al posto delle chiamate SpreadsheetApp dell'originale.
 from __future__ import annotations
 
 import pandas as pd
+import numpy as np
 
 from . import aggregations as agg
 from . import config as CFG
