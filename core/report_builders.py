@@ -392,8 +392,12 @@ def nazioni_metrics(venduto: pd.DataFrame, standalone: pd.DataFrame, nazioni: li
     """Una riga per nazione selezionata, con le metriche richieste per la pagina Nazioni."""
     rows = []
     for naz in nazioni:
-        v = venduto[venduto["nazione"].astype(str) == naz] if not venduto.empty else venduto
-        s = standalone[standalone["nazione"].astype(str) == naz] if (standalone is not None and not standalone.empty) else None
+        if naz == "GLOBAL":
+            v = venduto if not venduto.empty else None
+            s = standalone if (standalone is not None and not standalone.empty) else None
+        else:
+            v = venduto[venduto["nazione"].astype(str) == naz] if not venduto.empty else None
+            s = standalone[standalone["nazione"].astype(str) == naz] if (standalone is not None and not standalone.empty) else None
 
         fatt_venduto = v["nettoNetto"].sum() if not v.empty else 0.0
         fatt_extra = s["nettoNetto"].sum() if (s is not None and not s.empty) else 0.0
