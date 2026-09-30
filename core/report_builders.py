@@ -424,7 +424,7 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
             "paiaRese": "sum",
             "paiaNette": "sum"
         }).reset_index()
-    g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto"})
+    g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto", "paiaSpedite": "Paia spedite", "paiaRese": "Paia rese", "paiaNette": "Paia nette"})
     tot = g["Fatturato Netto"].sum()
     g["Share %"] = g["Fatturato Netto"] / tot if tot != 0 else 0.0
     g["% Reso"] = np.where(g["paiaSpedite"] > 0, g["paiaRese"] / g["paiaSpedite"], 0.0)
