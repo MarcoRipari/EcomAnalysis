@@ -434,7 +434,19 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
     g["Scontrino Medio"] = np.where(g["Ordini"] > 0, g["lordoSpedito"] / g["Ordini"], 0.0)
     
     g = g.drop(columns=["lordoSpedito"])
-    return g.sort_values("Fatturato Netto", ascending=False).reset_index(drop=True)
+
+    cols_order = [
+        "Brand",
+        "Ordini",
+        "Fatturato Netto",
+        "Share %",
+        "Scontrino Medio",
+        "Paia spedite",
+        "Paia rese",
+        "Paia nette",
+        "% Reso"
+    ]
+    return g[cols_order].sort_values("Fatturato Netto", ascending=False).reset_index(drop=True)
 
 
 # --------------------------------------------------------------------------------------
