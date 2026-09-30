@@ -5,7 +5,6 @@ pronte per essere renderizzate da una pagina Streamlit con st.dataframe / st.met
 st.plotly_chart, al posto delle chiamate SpreadsheetApp dell'originale.
 """
 import logging
-logging.basicConfig(level=logging.INFO)
 
 from __future__ import annotations
 
@@ -16,6 +15,7 @@ from . import aggregations as agg
 from . import config as CFG
 from . import formatting as fmt
 
+logging.basicConfig(level=logging.INFO)
 
 def var_pct(curr: float, old: float) -> float:
     """Porting di getVar/varFatt: (curr/old - 1), con fallback se old==0."""
