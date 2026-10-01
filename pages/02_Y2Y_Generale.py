@@ -12,7 +12,7 @@ st.title("📈 Comparativa Year-over-Year — Generale")
 pipe = guard_pipeline()
 
 if pipe.old_data.empty:
-    st.warning("Scegli anche un periodo di confronto in home per abilitare i confronti Y2Y.")
+    st.warning("Attiva **Confronta con un altro periodo (Y2Y)** in **⬆️ Carica Dati** e rigenera i dati per abilitare i confronti Y2Y.")
     st.stop()
 
 y_curr, y_old = period_labels(2)
