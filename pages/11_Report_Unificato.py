@@ -103,7 +103,6 @@ if unificata.empty:
     
 if not st.checkbox("Mostra la tabella unificata", value=False):
     st.caption("Tabella nascosta: spunta il checkbox per calcolare e mostrare il report (con i pulsanti CSV e MD).")
-    st.stop()
 else:
     cfg_unificata = {
         "Fatturato Netto": currency_col(),
