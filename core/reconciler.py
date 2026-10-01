@@ -12,10 +12,14 @@ v2 — riscritto per efficienza di memoria/CPU su dataset grandi (100k-300k+ rig
   `to_dict("records")`, niente dict-per-riga.
 - L'aggiornamento delle righe convertite (Spedito -> Reso) avviene con UNA sola scrittura
   vettoriale via `.loc[indici]` alla fine, non ricostruendo l'intero DataFrame.
-- Le righe che genererebbero una "chiave spuria" nell'originale (acquirente anonimizzato o
-  marketplace non in whitelist — pensate per non trovare mai un match) usano qui un token
-  univoco per riga invece di un numero casuale: stessa garanzia (zero collisioni), risultato
-  deterministico invece che probabilistico, nessuna chiamata a random.
+
+v3 — fix chiave spuria (bug della versione precedente):
+- Eliminato il fallback "__SPURIOUS__<indice>": era una chiave POSIZIONALE (l'indice della riga
+  nel proprio dataframe), quindi il reso in posizione j del file RESI produceva la stessa
+  stringa della riga spedita in posizione j del DATASET e la "matchava" anche se ordine, sku
+  e acquirente non c'entravano nulla. La chiave composita è ora SEMPRE di contenuto, per
+  tutti i marketplace. Un reso che non trova nulla né a stadio 1 né a stadio 2 finisce
+  standalone, come previsto dal progetto.
 """
 
 from __future__ import annotations
@@ -25,8 +29,6 @@ from collections import deque
 import numpy as np
 import pandas as pd
 
-from . import config as CFG
-
 
 def _key_ordine_series(df: pd.DataFrame) -> pd.Series:
     return (df["ordineId"].astype(str) + "|" + df["rigaOrdine"].astype(str) + "|" +
@@ -34,12 +36,17 @@ def _key_ordine_series(df: pd.DataFrame) -> pd.Series:
 
 
 def _key_composito_series(df: pd.DataFrame) -> pd.Series:
-    whitelist = df["mkp"].isin(CFG.MKP_INCLUSI_MATCH_COMPOSITO) & (df["acquirente"] != "ANONYMIZED ANONYMIZED")
+    """Chiave composita SEMPRE di contenuto: mkp|nazione|acquirente|sku13|taglia|lordo(centesimi).
+
+    Niente fallback "__SPURIOUS__<indice>" e niente whitelist: quel fallback era posizionale
+    (l'indice della riga nel proprio dataframe) e collideva tra file diversi — il reso in
+    posizione j del RESI "matchava" la riga spedita in posizione j del DATASET anche se
+    ordine/sku/acquirente non c'entravano nulla.
+    """
     lordo_cents = (df["lordoSpedito"].astype(float) * 100).round().astype("int64").astype(str)
-    reale = (df["mkp"].astype(str) + "|" + df["nazione"].astype(str) + "|" + df["acquirente"].astype(str) + "|" +
-             df["sku13"].astype(str) + "|" + df["taglia"].astype(str) + "|" + lordo_cents)
-    spuria = "__SPURIOUS__" + pd.Series(np.arange(len(df)), index=df.index).astype(str)
-    return reale.where(whitelist, spuria)
+    return (df["mkp"].astype(str) + "|" + df["nazione"].astype(str) + "|" +
+            df["acquirente"].astype(str) + "|" + df["sku13"].astype(str) + "|" +
+            df["taglia"].astype(str) + "|" + lordo_cents)
 
 
 def _groupby_indices(key_series: pd.Series) -> dict:
