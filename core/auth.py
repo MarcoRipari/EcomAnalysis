@@ -13,9 +13,10 @@ Come funziona
   sessione lo si legge, si rinfresca il token e si rientra senza rifare il login.
 - Supabase ruota i refresh token a ogni uso: ogni refresh riscrive il cookie col
   token nuovo (l'app lo fa da sola).
-- Regola di sicurezza: quando un account ha fattori TOTP verificati, l'accesso è
-  concesso solo al livello aal2 (dopo il codice TOTP). Gli account senza fattori
-  entrano con aal1 e possono attivare la 2FA dalla pagina 🔐 Account.
+- Regola di sicurezza: l'accesso è concesso SOLO al livello aal2. Un account con
+  fattori TOTP verificati chiede il codice a 6 cifre; un account senza fattori NON
+  entra: al primo accesso l'app lo obbliga ad attivare la 2FA (QR + secret) prima
+  di mostrare qualsiasi pagina.
 - Regola tecnica: il cookie viene scritto/ripulito lato client con un micro-iframe
   JS. NON chiamare st.rerun() nello stesso run di una scrittura cookie: l'iframe
   non farebbe in tempo ad arrivare al browser.
@@ -288,25 +289,22 @@ def get_session() -> dict | None:
 
 
 def require_session() -> dict:
-    """Il cancello dell'app: form di login (+ passo TOTP) se non autenticati.
+    """Il cancello dell'app: si entra SOLO con una sessione a livello aal2.
 
-    Se l'utente si autentica in questo stesso run, ritorna la sessione nuova SENZA
-    rerun (il cookie deve prima arrivare al browser).
+    - Nessuna sessione → form di login.
+    - Account con 2FA attiva → chiede il codice TOTP.
+    - Primo accesso senza 2FA → obbliga ad attivarla qui (QR + secret) prima di entrare.
+    Se l'autenticazione riesce nello stesso run, la UI di accesso viene pulita con
+    st.empty() (NON con st.rerun), così il cookie scritto dall'iframe arriva al browser.
     """
     sess = get_session()
+    if sess is not None and sess.get("aal") == "aal2":
+        return sess
 
-    if sess is None:
-        _render_login()
-        sess = st.session_state.get("auth")
-        if sess is None:
-            st.stop()
-
-    if sess.get("aal") != "aal2" and sess.get("ha_fattori"):
-        _render_totp(sess)
-        sess = st.session_state.get("auth")
-        if sess is None:
-            st.stop()
-
+    _render_auth(sess)
+    sess = st.session_state.get("auth")
+    if sess is None or sess.get("aal") != "aal2":
+        st.stop()
     return sess
 
 
@@ -317,17 +315,38 @@ def logout(session: dict) -> None:
     revoke_session(session)
     st.session_state.pop("auth", None)
     st.session_state.pop("auth_pending", None)
+    st.session_state.pop("auth_enroll", None)
+    st.session_state.pop("_enroll_attivo", None)
     _clear_cookie()
 
 
 # ------------------------------------------------------------------ UI
-def _render_login() -> None:
-    st.markdown("### 🔐 Accesso")
-    st.caption("Inserisci le credenziali del tuo account (utenti gestiti in Supabase).")
-    with st.form("login_form"):
-        email = st.text_input("Email", key="login_email")
-        password = st.text_input("Password", type="password", key="login_pwd")
-        entra = st.form_submit_button("Accedi", type="primary", use_container_width=True)
+def qr_component(qr_code: str) -> None:
+    """Disegna il QR dell'enroll TOTP. Attenzione: GoTrue NON restituisce un
+    data-URI ma SVG puro ('<svg ...>...</svg>') — messo dentro <img src="...">
+    l'HTML si vedrebbe come testo. Iniettato come markup inline invece si
+    disegna perfettamente. (Usato dal cancello e dalla pagina Account.)"""
+    qr = (qr_code or "").strip()
+    if not qr:
+        return
+    if qr.startswith("<svg"):
+        _iframe_html(
+            qr.replace("<svg ", '<svg style="width:100%;height:auto;" ', 1),
+            height=240,
+        )
+    else:   # fallback: data-URI o URL di un'immagine
+        _iframe_html(f'<img src="{qr}" width="220" alt="QR TOTP"/>', height=240)
+
+
+def _login_flow() -> None:
+    ph = st.empty()   # placeholder: a login riuscito la UI di accesso sparisce SUBITO
+    with ph.container():
+        st.markdown("### 🔐 Accesso")
+        st.caption("Inserisci le credenziali del tuo account (utenti gestiti in Supabase).")
+        with st.form("login_form"):
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Password", type="password", key="login_pwd")
+            entra = st.form_submit_button("Accedi", type="primary", use_container_width=True)
 
     if entra:
         try:
@@ -335,22 +354,24 @@ def _render_login() -> None:
         except AuthError as e:
             st.error(str(e))
             return
-        if sess["aal"] == "aal2" or not sess["ha_fattori"]:
-            remember_session(sess)
-            st.success("Accesso riuscito ✅")
-        else:
-            # account con 2FA attiva: serve il codice TOTP (in questo stesso run)
+        ph.empty()   # le box login spariscono nello STESSO run (nessuno st.rerun: il cookie arriva)
+        if sess["ha_fattori"]:
             st.session_state["auth_pending"] = sess
             st.info("🔐 Questo account ha la 2FA attiva: inserisci il codice a 6 cifre.")
+            _totp_flow(sess)
+        else:
+            st.session_state["auth_enroll"] = sess
+            st.info("🔐 **Primo accesso**: prima di entrare devi attivare la 2FA qui sotto (una volta sola).")
+            _enroll_flow(sess)
 
-    if "auth_pending" in st.session_state:
-        _render_totp(st.session_state["auth_pending"])
 
-
-def _render_totp(sess: dict) -> None:
-    with st.form("totp_form"):
-        code = st.text_input("Codice TOTP (6 cifre)", max_chars=6, key="totp_code")
-        ok = st.form_submit_button("Verifica", type="primary", use_container_width=True)
+def _totp_flow(sess: dict) -> None:
+    """Secondo fattore per account con 2FA già attiva."""
+    ph = st.empty()
+    with ph.container():
+        with st.form("totp_form"):
+            code = st.text_input("Codice TOTP (6 cifre)", max_chars=6, key="totp_code")
+            ok = st.form_submit_button("Verifica", type="primary", use_container_width=True)
     if ok:
         try:
             full = verify_totp(sess, code.strip().replace(" ", ""))
@@ -359,4 +380,66 @@ def _render_totp(sess: dict) -> None:
             return
         st.session_state.pop("auth_pending", None)
         remember_session(full)
+        ph.empty()
         st.success("✅ Codice verificato — accesso completato.")
+
+
+def _enroll_flow(sess: dict) -> None:
+    """Primo accesso senza 2FA: l'app la fa attivare PRIMA di entrare."""
+    ph = st.empty()
+    enroll = st.session_state.get("_enroll_attivo")
+    if enroll is None:
+        try:
+            nome = f"App TOTP {time.strftime('%d/%m/%Y %H:%M:%S')}"
+            enroll = enroll_totp(sess["access_token"], nome)
+        except AuthError as e:
+            st.error(f"Impossibile generare il QR per la 2FA: {e}")
+            return
+        st.session_state["_enroll_attivo"] = enroll   # riusato finché non viene confermato
+
+    with ph.container():
+        st.markdown("#### 1️⃣ Configura la tua app TOTP")
+        st.caption(
+            "Scansiona il QR con Google Authenticator, 1Password, Aegis, … "
+            "oppure copia il **secret** a mano, poi conferma con il codice a 6 cifre."
+        )
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            qr_component(enroll["qr_code"])
+        with c2:
+            st.markdown("**Secret** (inserimento manuale):")
+            st.code(enroll["secret"], language=None)
+            if enroll.get("uri"):
+                st.caption(f"URI otpauth: `{enroll['uri']}`")
+        with st.form("enroll_gate_form"):
+            code = st.text_input("2️⃣ Codice a 6 cifre generato dall'app",
+                                 max_chars=6, key="enroll_gate_code")
+            ok = st.form_submit_button("3️⃣ Conferma e attiva la 2FA",
+                                       type="primary", use_container_width=True)
+
+    if ok:
+        try:
+            full = confirm_enroll(sess, enroll["id"], code.strip().replace(" ", ""))
+        except AuthError as e:
+            st.error(str(e))
+            return
+        st.session_state.pop("_enroll_attivo", None)
+        st.session_state.pop("auth_enroll", None)
+        remember_session(full)
+        ph.empty()
+        st.success("✅ 2FA attivata — accesso completato. Dal prossimo login verrà "
+                   "chiesto anche il codice TOTP.")
+
+
+def _render_auth(sess: dict | None) -> None:
+    """L'unica UI del cancello: login, oppure passo TOTP, oppure enroll obbligatorio."""
+    if "auth_enroll" in st.session_state:
+        _enroll_flow(st.session_state["auth_enroll"])
+    elif "auth_pending" in st.session_state:
+        _totp_flow(st.session_state["auth_pending"])
+    elif sess is not None and sess.get("ha_fattori"):
+        _totp_flow(sess)          # sessione aal1 recuperata dal cookie, con 2FA attiva
+    elif sess is not None:
+        _enroll_flow(sess)        # sessione senza 2FA (caso raro): attivazione forzata
+    else:
+        _login_flow()
