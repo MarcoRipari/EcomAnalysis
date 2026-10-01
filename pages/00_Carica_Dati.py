@@ -51,14 +51,30 @@ else:
             value=(max(data_min, shift_year(data_max, -1)), data_max),
             min_value=data_min, max_value=data_max, key="periodo_a",
         )
-        confronta = st.checkbox("Confronta con un altro periodo", value=False)
+        # Confronto AUTOMATICO anno−1 (clampato alla copertura del DB);
+        # l'anno−2 è opzionale e si attiva con la spunta qui sotto.
+        periodo_a_ok = isinstance(periodo_a, tuple) and len(periodo_a) == 2
         periodo_b = None
-        if confronta and isinstance(periodo_a, tuple) and len(periodo_a) == 2:
-            default_b = (max(data_min, shift_year(periodo_a[0], -1)), min(data_max, shift_year(periodo_a[1], -1)))
-            periodo_b = st.date_input(
-                "Periodo di confronto", value=default_b,
-                min_value=data_min, max_value=data_max, key="periodo_b",
+        confronta_2anni = False
+        if periodo_a_ok:
+            b0 = max(data_min, shift_year(periodo_a[0], -1))
+            b1 = min(data_max, shift_year(periodo_a[1], -1))
+            if b0 <= b1:
+                periodo_b = (b0, b1)
+            st.caption(
+                f"Confronto automatico — Anno−1: **{periodo_b[0]} → {periodo_b[1]}**"
+                if periodo_b else
+                "Confronto automatico — Anno−1: non coperto dal DB (niente dati da confrontare)."
             )
+            confronta_2anni = st.checkbox("Confronta anche 2 anni precedenti", value=False)
+            if confronta_2anni:
+                c0 = max(data_min, shift_year(periodo_a[0], -2))
+                c1 = min(data_max, shift_year(periodo_a[1], -2))
+                st.caption(
+                    f"Confronto Anno−2: **{c0} → {c1}**"
+                    if c0 <= c1 else
+                    "Confronto Anno−2: non coperto dal DB (le pagine lo mostreranno vuoto)."
+                )
 
     with col_pulsanti:
         with st.expander("🖼️ Anagrafica articoli (facoltativa)"):
@@ -71,7 +87,7 @@ else:
         periodo_b_ok = (not confronta) or (isinstance(periodo_b, tuple) and len(periodo_b) == 2)
         genera = st.button(
             "▶️ Genera dati report", type="primary", use_container_width=True,
-            disabled=not (periodo_a_ok and periodo_b_ok),
+            disabled=not periodo_a_ok,
         )
     
         if genera:
@@ -84,18 +100,19 @@ else:
                     result = pl.build_pipeline_from_db(
                         conn,
                         periodo_current=periodo_a,
-                        periodo_old=periodo_b if (confronta and periodo_b_ok) else None,
+                        periodo_old=periodo_b,
                         perimetro=perimetro,
                         anagrafica=anagrafica,
                     )
                     st.session_state["pipeline"] = result
                     st.session_state["perimetro_label"] = perimetro_label
                     st.session_state["sel_periodo_a"] = periodo_a
-                    st.session_state["sel_periodo_b"] = periodo_b if (confronta and periodo_b_ok) else None
+                    st.session_state["sel_periodo_b"] = periodo_b
                     st.session_state["periodo_a_label"] = f"{periodo_a[0]} → {periodo_a[1]}"
                     st.session_state["periodo_b_label"] = (
-                        f"{periodo_b[0]} → {periodo_b[1]}" if (confronta and periodo_b_ok) else None
+                        f"{periodo_b[0]} → {periodo_b[1]}" if periodo_b else None
                     )
+                    st.session_state["sel_confronta_2anni"] = confronta_2anni
                 except Exception as e:
                     st.exception(e)
                     st.stop()
