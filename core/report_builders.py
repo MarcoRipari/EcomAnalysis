@@ -399,12 +399,12 @@ def nazioni_metrics(venduto: pd.DataFrame, standalone: pd.DataFrame, nazioni: li
             v = venduto[venduto["nazione"].astype(str) == naz] if not venduto.empty else None
             s = standalone[standalone["nazione"].astype(str) == naz] if (standalone is not None and not standalone.empty) else None
 
-        fatt_venduto = v["nettoNetto"].sum() if not v.empty else 0.0
+        fatt_venduto = v["nettoNetto"].sum() if (v is not None and not v.empty) else 0.0
         fatt_extra = s["nettoNetto"].sum() if (s is not None and not s.empty) else 0.0
-        ordini = v.loc[v["ordineId"] != "", "ordineId"].nunique() if not v.empty else 0
-        paia_sped = v["paiaSpedite"].sum() if not v.empty else 0.0
-        paia_rese_in = v["paiaRese"].sum() if not v.empty else 0.0
-        paia_nette = v["paiaNette"].sum() if not v.empty else 0.0
+        ordini = v.loc[v["ordineId"] != "", "ordineId"].nunique() if (v is not None and not v.empty) else 0
+        paia_sped = v["paiaSpedite"].sum() if (v is not None and not v.empty) else 0.0
+        paia_rese_in = v["paiaRese"].sum() if (v is not None and not v.empty) else 0.0
+        paia_nette = v["paiaNette"].sum() if (v is not None and not v.empty) else 0.0
         paia_rese_out = s["paiaRese"].sum() if (s is not None and not s.empty) else 0.0
         perc_reso = paia_rese_in / paia_sped if paia_sped > 0 else 0.0
 
@@ -427,15 +427,19 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
     
     if v.empty:
         return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
+    # ordineId vuoto non deve contare come ordine: NaN viene ignorato da nunique
+    # (stesso guard usato in nazioni_unified_report e aggregate_by_key)
+    v = v.copy()
+    v["_ord"] = v["ordineId"].where(v["ordineId"] != "")
     g = v.groupby("clzMappata", sort=False, observed=True).agg({
             "lordoSpedito": "sum",
-            "ordineId": "nunique",
+            "_ord": "nunique",
             "nettoNetto": "sum",
             "paiaSpedite": "sum",
             "paiaRese": "sum",
             "paiaNette": "sum"
         }).reset_index()
-    g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto", "paiaSpedite": "Paia spedite", "paiaRese": "Paia rese", "paiaNette": "Paia nette", "ordineId": "Ordini"})
+    g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto", "paiaSpedite": "Paia spedite", "paiaRese": "Paia rese", "paiaNette": "Paia nette", "_ord": "Ordini"})
     tot = g["Fatturato Netto"].sum()
     g["Share %"] = g["Fatturato Netto"] / tot if tot != 0 else 0.0
     g["% Reso"] = np.where(g["Paia spedite"] > 0, g["Paia rese"] / g["Paia spedite"], 0.0)
