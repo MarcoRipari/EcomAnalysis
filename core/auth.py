@@ -52,14 +52,19 @@ COOKIE_NAME = "ecom_sb_session"
 
 # Nei run NON autenticati la sidebar viene nascosta via CSS (Streamlit non ha un'API
 # per comprimerla programmaticamente): la schermata di login appare identica al primo
-# accesso e dopo il logout, senza la strip vuota di sidebar. Il CSS sta DENTRO il
-# placeholder della UI di accesso: appena l'autenticazione riesce il placeholder
-# viene svuotato, il CSS sparisce e il menù torna visibile nello stesso run.
-_CSS_NASCONDI_SIDEBAR = """
+# accesso e dopo il logout, senza la strip vuota di sidebar. In più il contenuto viene
+# costretto alla larghezza "centered" (730px): dopo il logout il layout erediterebbe
+# quello "wide" dell'ultima pagina visitata e il box login si allargherebbe a 3/4 di
+# schermo. Il CSS sta DENTRO il placeholder della UI di accesso: appena
+# l'autenticazione riesce il placeholder viene svuotato, il CSS sparisce e menù e
+# layout tornano quelli normali nello stesso run.
+_CSS_LOGIN = """
 <style>
   section[data-testid="stSidebar"] { display: none !important; }
   div[data-testid="stSidebarCollapsedControl"] { display: none !important; }
   div[data-testid="collapsedControl"] { display: none !important; }
+  [data-testid="stMainBlockContainer"] { max-width: 730px !important; margin: 0 auto !important; }
+  .block-container { max-width: 730px !important; margin: 0 auto !important; }
 </style>
 """
 
@@ -404,7 +409,7 @@ def qr_component(qr_code: str) -> None:
 def _login_flow() -> None:
     ph = st.empty()   # placeholder: a login riuscito la UI di accesso sparisce SUBITO
     with ph.container():
-        st.markdown(_CSS_NASCONDI_SIDEBAR, unsafe_allow_html=True)
+        st.markdown(_CSS_LOGIN, unsafe_allow_html=True)
         st.markdown("### 🔐 Accesso")
         st.caption("Inserisci le credenziali del tuo account (utenti gestiti in Supabase).")
         with st.form("login_form"):
@@ -433,7 +438,7 @@ def _totp_flow(sess: dict) -> None:
     """Secondo fattore per account con 2FA già attiva."""
     ph = st.empty()
     with ph.container():
-        st.markdown(_CSS_NASCONDI_SIDEBAR, unsafe_allow_html=True)
+        st.markdown(_CSS_LOGIN, unsafe_allow_html=True)
         with st.form("totp_form"):
             code = st.text_input("Codice TOTP (6 cifre)", max_chars=6, key="totp_code")
             ok = st.form_submit_button("Verifica", type="primary", use_container_width=True)
@@ -463,7 +468,7 @@ def _enroll_flow(sess: dict) -> None:
         st.session_state["_enroll_attivo"] = enroll   # riusato finché non viene confermato
 
     with ph.container():
-        st.markdown(_CSS_NASCONDI_SIDEBAR, unsafe_allow_html=True)
+        st.markdown(_CSS_LOGIN, unsafe_allow_html=True)
         st.markdown("#### 1️⃣ Configura la tua app TOTP")
         st.caption(
             "Scansiona il QR con Google Authenticator, 1Password, Aegis, … "
