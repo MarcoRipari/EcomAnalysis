@@ -35,7 +35,7 @@ else:
         f"Copertura dati nel DB (Data Pagamento): dal **{stats['data_min']}** al **{stats['data_max']}**."
     )
 
-    col_vuota1, col_periodi, col_perimetro, col_vuota2 = st.columns([1, 2, 2, 1])
+    col_periodi, col_perimetro, col_vuota, col_vuota2 = st.columns([1, 2, 2, 2])
 
     with col_periodi:
         periodo_a = st.date_input(
