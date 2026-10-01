@@ -9,11 +9,12 @@ legittime (stesso ordine/sku/taglia comprato più volte). Il ricarico dello stes
 idempotente: le righe già presenti vengono ignorate, non duplicate.
 
 Upload DATASET -> INSERT (stato iniziale: Spedito, o Reso se il file lo marca già così).
-Upload RESI     -> per ogni riga, cerca la riga "Spedito" corrispondente (stessa cascata a due
-                    chiavi di reconciler.py: prima ordine+riga+sku+taglia, poi il composito
-                    mkp+naz+acquirente+sku+taglia+importo) e la aggiorna a Reso con un UPDATE
-                    mirato. Se non trova nulla, inserisce una riga "rimborso extra" standalone.
-                    Se trova una riga già Reso, la logga come duplicato e la scarta.
+Upload RESI     -> per ogni riga, cerca la corrispondente con la cascata a due chiavi di
+                    reconciler.py (prima ordine+riga+sku+taglia, poi il composito
+                    mkp+naz+acquirente+sku+taglia+importo), su TUTTE le righe (Spedito e Reso):
+                    già Reso -> duplicato, no-op; Spedito -> UPDATE a Reso; nessuna riga ->
+                    insert standalone (rimborso extra). Includere anche le righe già Reso nella
+                    ricerca è ciò che rende il ricarico RESI idempotente.
 
 Query per range di date: "venduto nel periodo" = data_vendita nel range (un reso il cui
 data_reso NON è nello stesso range conta come spedito puro per quel periodo); "reso extra nel
@@ -31,8 +32,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-from . import config as CFG
 
 DEFAULT_DB_PATH = "data/ecombi.db"
 
@@ -89,13 +88,20 @@ def _key_ordine_series(df: pd.DataFrame) -> pd.Series:
 
 
 def _key_composito_series(df: pd.DataFrame) -> pd.Series:
-    whitelist = df["mkp"].astype(str).isin(CFG.MKP_INCLUSI_MATCH_COMPOSITO) & \
-        (df["acquirente"].astype(str) != "ANONYMIZED ANONYMIZED")
+    """Chiave composita SEMPRE di contenuto: mkp|nazione|acquirente|sku13|taglia|lordo(centesimi).
+
+    Niente fallback "__SPURIOUS__<indice>": era posizionale (l'indice della riga nel proprio
+    dataframe) e collideva tra file diversi — il reso in posizione j del RESI "matchava" la
+    riga spedita in posizione j del DATASET anche se ordine/sku/acquirente non c'entravano
+    nulla. Eliminato anche il guard sulla whitelist: il match composito vale per tutti i
+    marketplace (per gli acquirenti anonimi è semplicemente più selettivo sul resto della
+    chiave, e la regola resta: match trovato -> RESO no-op / SPEDITO converti; nessun match ->
+    standalone).
+    """
     lordo_cents = (df["lordoSpedito"].astype(float) * 100).round().astype("int64").astype(str)
-    reale = (df["mkp"].astype(str) + "|" + df["nazione"].astype(str) + "|" + df["acquirente"].astype(str) + "|" +
-             df["sku13"].astype(str) + "|" + df["taglia"].astype(str) + "|" + lordo_cents)
-    spuria = "__SPURIOUS__" + pd.Series(np.arange(len(df)), index=df.index).astype(str)
-    return reale.where(whitelist, spuria)
+    return (df["mkp"].astype(str) + "|" + df["nazione"].astype(str) + "|" +
+            df["acquirente"].astype(str) + "|" + df["sku13"].astype(str) + "|" +
+            df["taglia"].astype(str) + "|" + lordo_cents)
 
 
 def _content_hash_series(df: pd.DataFrame) -> pd.Series:
@@ -172,6 +178,44 @@ def _executemany_chunked(conn: sqlite3.Connection, sql: str, records: list, chun
 
 
 # --------------------------------------------------------------------------------------
+# Lookup FIFO per upsert_resi
+# --------------------------------------------------------------------------------------
+
+def _index_tutti(conn: sqlite3.Connection, col: str, keys) -> dict:
+    """Indice FIFO su TUTTE le righe (Spedito E Reso), ordinate per rowid:
+    {chiave: deque[(id, status)]}.
+
+    Includere anche le righe già 'Reso' è ciò che rende il ricarico RESI idempotente: un reso
+    già applicato ritrova la sua riga (ormai 'Reso') e viene registrato come duplicato, invece
+    di non trovare nulla e convertire per sbaglio un'altra riga 'Spedito' mai restituita.
+    (La versione precedente filtrava WHERE status='Spedito': era quella a nascondere il
+    partner già convertito durante il ricarico.)
+    """
+    idx: dict[str, deque] = {}
+    cur = conn.cursor()
+    for chunk in _chunked(list(set(keys))):
+        placeholders = ",".join("?" * len(chunk))
+        q = f"SELECT id, {col}, status FROM righe WHERE {col} IN ({placeholders}) ORDER BY rowid"
+        for row_id, k, status in cur.execute(q, chunk):
+            idx.setdefault(k, deque()).append((row_id, status))
+    return idx
+
+
+def _pop_fifo(idx: dict, key: str, consumed_now: set) -> tuple[str | None, str | None]:
+    """Sfila il primo candidato non ancora consumato in questo upload per la chiave data.
+    NON salta le righe già 'Reso': la decisione converti/no-op spetta al chiamante
+    (regola: già Reso -> duplicato/no-op; Spedito -> converti)."""
+    bucket = idx.get(key)
+    if not bucket:
+        return None, None
+    while bucket:
+        cand_id, cand_status = bucket.popleft()
+        if cand_id not in consumed_now:
+            return cand_id, cand_status
+    return None, None
+
+
+# --------------------------------------------------------------------------------------
 # Upload DATASET
 # --------------------------------------------------------------------------------------
 
@@ -211,13 +255,20 @@ def upsert_dataset(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, 
 
 
 # --------------------------------------------------------------------------------------
-# Upload RESI — porting della cascata di reconciler.py, ma come UPDATE mirati sul DB
+# Upload RESI — cascata a due stadi, su TUTTE le righe (Spedito e Reso)
 # --------------------------------------------------------------------------------------
 
 def upsert_resi(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, progress=None) -> dict:
-    """df = output di engine.process_dataset() su un file RESI. Aggiorna a 'Reso' le righe
-    'Spedito' corrispondenti già in DB; se non trova nulla inserisce una riga standalone
-    (rimborso extra); se trova una riga già 'Reso' la logga come duplicato e la scarta."""
+    """df = output di engine.process_dataset() su un file RESI.
+
+    Regola di match (due stadi, su TUTTE le righe — Spedito e Reso):
+      1. ordine|riga|sku13|taglia
+      2. mkp|nazione|acquirente|sku13|taglia|lordo_in_centesimi
+    Riga trovata e già 'Reso'  -> duplicato, NO-OP (rende il ricarico idempotente).
+    Riga trovata e 'Spedito'   -> UPDATE a 'Reso' con data_reso e matched_via.
+    Nessuna riga (a nessuno stato) con nessuna delle due chiavi -> INSERT standalone
+    (rimborso extra).
+    """
     esito = {"convertiti": 0, "duplicati": 0, "standalone": 0}
     if df.empty:
         return esito
@@ -226,95 +277,60 @@ def upsert_resi(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, pro
     key_composito_resi = _key_composito_series(df).to_numpy()
     data_reso_fmt = _fmt_date_series(df["dataReso"])  # precomputato una volta, non per-riga in loop
     n = len(df)
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    log_rows = []
 
-    def _index_spedito(col: str, keys) -> dict:
-        idx: dict[str, deque] = {}
-        cur = conn.cursor()
-        for chunk in _chunked(list(set(keys))):
-            placeholders = ",".join("?" * len(chunk))
-            q = f"SELECT id, {col} FROM righe WHERE status='Spedito' AND {col} IN ({placeholders}) ORDER BY rowid"
-            for row_id, k in cur.execute(q, chunk):
-                idx.setdefault(k, deque()).append(row_id)
-        return idx
-
-    idx_ordine = _index_spedito("key_ordine", key_ordine_resi)
+    ordine_id_arr = df["ordineId"].to_numpy()
+    sku13_arr = df["sku13"].to_numpy()
 
     matched_ids: list[str] = []
     matched_modalita: list[str] = []
     matched_data_reso: list[str | None] = []
     remaining_positions: list[int] = []
-
+    standalone_positions: list[int] = []
     consumed_now: set[str] = set()
+
+    def _duplicato(j: int, k_comp: str, modalita: str):
+        esito["duplicati"] += 1
+        log_rows.append((now, fonte_file, "duplicato", str(ordine_id_arr[j]),
+                          str(ordine_id_arr[j]), str(sku13_arr[j]), k_comp, modalita))
+
+    # --- Stage 1: ordine|riga|sku13|taglia, su TUTTE le righe (Spedito e Reso) ---
+    idx_ordine = _index_tutti(conn, "key_ordine", key_ordine_resi)
     for j in range(n):
-        bucket = idx_ordine.get(key_ordine_resi[j])
-        row_id = None
-        while bucket:
-            cand = bucket.popleft()
-            if cand not in consumed_now:
-                row_id = cand
-                break
-        if row_id is not None:
-            consumed_now.add(row_id)
-            matched_ids.append(row_id)
-            matched_modalita.append("ORDINE+RIGA+SKU+TG")
-            matched_data_reso.append(data_reso_fmt[j])
-        else:
+        row_id, status = _pop_fifo(idx_ordine, key_ordine_resi[j], consumed_now)
+        if row_id is None:
             remaining_positions.append(j)
+        else:
+            consumed_now.add(row_id)
+            if status == "Reso":
+                _duplicato(j, key_ordine_resi[j], "ORDINE+RIGA+SKU+TG")
+            else:
+                matched_ids.append(row_id)
+                matched_modalita.append("ORDINE+RIGA+SKU+TG")
+                matched_data_reso.append(data_reso_fmt[j])
         if progress and j % 20000 == 0:
             progress(j, n, "match ordine")
 
+    # --- Stage 2: composito, su TUTTE le righe (Spedito e Reso) ---
     if remaining_positions:
-        keys_comp = key_composito_resi[remaining_positions]
-        idx_comp = _index_spedito("key_composito", keys_comp)
-        still_remaining = []
+        idx_comp = _index_tutti(conn, "key_composito", key_composito_resi[remaining_positions])
         for pos, j in enumerate(remaining_positions):
-            bucket = idx_comp.get(key_composito_resi[j])
-            row_id = None
-            while bucket:
-                cand = bucket.popleft()
-                if cand not in consumed_now:
-                    row_id = cand
-                    break
-            if row_id is not None:
-                consumed_now.add(row_id)
-                matched_ids.append(row_id)
-                matched_modalita.append("MKP+NAZ+ACQUIRENTE+SKU+TG+IMPORTO")
-                matched_data_reso.append(data_reso_fmt[j])
+            k_comp = key_composito_resi[j]
+            row_id, status = _pop_fifo(idx_comp, k_comp, consumed_now)
+            if row_id is None:
+                # nessuna riga nel DB (a qualunque stato) con queste chiavi: reso senza spedito noto
+                standalone_positions.append(j)
             else:
-                still_remaining.append(j)
+                consumed_now.add(row_id)
+                if status == "Reso":
+                    _duplicato(j, k_comp, "MKP+NAZ+ACQUIRENTE+SKU+TG+IMPORTO")
+                else:
+                    matched_ids.append(row_id)
+                    matched_modalita.append("MKP+NAZ+ACQUIRENTE+SKU+TG+IMPORTO")
+                    matched_data_reso.append(data_reso_fmt[j])
             if progress and pos % 20000 == 0:
                 progress(pos, len(remaining_positions), "match composito")
-        remaining_positions = still_remaining
-
-    # Righe che non hanno trovato nessuno "Spedito": verifichiamo se esiste già un match
-    # (qualsiasi stato) per distinguere "duplicato" (già riconciliato prima) da "standalone"
-    # (nessuna riga spedita nota per queste chiavi).
-    standalone_positions = []
-    now = datetime.utcnow().isoformat(timespec="seconds")
-    log_rows = []
-
-    if remaining_positions:
-        keys_check = list(set(key_ordine_resi[remaining_positions].tolist() +
-                               key_composito_resi[remaining_positions].tolist()))
-        exists_any: set[str] = set()
-        cur = conn.cursor()
-        for chunk in _chunked(keys_check):
-            placeholders = ",".join("?" * len(chunk))
-            q = (f"SELECT DISTINCT key_ordine FROM righe WHERE key_ordine IN ({placeholders}) "
-                 f"UNION SELECT DISTINCT key_composito FROM righe WHERE key_composito IN ({placeholders})")
-            for (k,) in cur.execute(q, chunk + chunk):
-                exists_any.add(k)
-
-        ordine_id_arr = df["ordineId"].to_numpy()
-        sku13_arr = df["sku13"].to_numpy()
-        for j in remaining_positions:
-            k_ord, k_comp = key_ordine_resi[j], key_composito_resi[j]
-            if k_ord in exists_any or k_comp in exists_any:
-                esito["duplicati"] += 1
-                log_rows.append((now, fonte_file, "duplicato", ordine_id_arr[j],
-                                  ordine_id_arr[j], str(sku13_arr[j]), k_comp, None))
-            else:
-                standalone_positions.append(j)
 
     # --- UPDATE vettoriale delle righe convertite (a blocchi) ---
     if matched_ids:
