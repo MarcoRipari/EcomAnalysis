@@ -122,18 +122,16 @@ else:
     cfg_unificata = {k: v for k, v in cfg_unificata.items() if k in unificata.columns}
     st.dataframe(unificata, hide_index=True, use_container_width=True, column_config=cfg_unificata)
 
-col_csv, col_md = st.columns(2)
-with col_csv:
-    st.download_button(
-        "⬇️ Scarica il report unificato (CSV)",
-        data=unificata.to_csv(index=False).encode("utf-8-sig"),
-        file_name="report_unificato_nazioni.csv",
-        mime="text/csv",
-    )
-with col_md:
-    st.download_button(
-        "⬇️ Scarica il report unificato (MD)",
-        data=("# Report unificato nazioni — Marketplace × Nazione × Brand\n\n" + _df_to_md(unificata)).encode("utf-8"),
-        file_name="report_unificato_nazioni.md",
-        mime="text/markdown",
-    )
+st.download_button(
+    "⬇️ Scarica il report unificato (CSV)",
+    data=unificata.to_csv(index=False).encode("utf-8-sig"),
+    file_name="report_unificato_nazioni.csv",
+    mime="text/csv",
+)
+
+st.download_button(
+    "⬇️ Scarica il report unificato (MD)",
+    data=("# Report unificato nazioni — Marketplace × Nazione × Brand\n\n" + _df_to_md(unificata)).encode("utf-8"),
+    file_name="report_unificato_nazioni.md",
+    mime="text/markdown",
+)
