@@ -74,8 +74,8 @@ if not data_2anni.empty:
 
 #st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
 st.caption(f"**{y_curr}**: {st.session_state.get('periodo_a_label', '—')}")
-st.caption(f" · **{y_old}**: {periodo_b[0]} → {periodo_b[1]}")
-st.caption(f" · **{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
+st.caption(f"**{y_old}**: {periodo_b[0]} → {periodo_b[1]}")
+st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
 
 if data_2anni.empty:
     st.caption("Nessun dato nel DB per 'due anni precedenti': il confronto a 3 vie resterà vuoto.")
