@@ -62,9 +62,10 @@ old_data = pipe.old_data
 # Terzo anno di confronto (due anni precedenti), stessa logica della pagina Nazioni
 mostra_3_anno = False
 periodo_a = st.session_state.get("sel_periodo_a")
+periodo_b = (shift_year(periodo_a[0], -1), shift_year(periodo_a[1], -1))
+periodo_c = (shift_year(periodo_a[0], -2), shift_year(periodo_a[1], -2))
 y_2anni = None
 data_2anni = current_data.iloc[0:0]
-periodo_c = (shift_year(periodo_a[0], -2), shift_year(periodo_a[1], -2))
 conn = db.connect()
 data_2anni, standalone_2anni = db.query_period(conn, *periodo_c, pipe.perimetro)
 y_2anni = period_labels(3)[2]
@@ -72,11 +73,9 @@ if not data_2anni.empty:
     mostra_3_anno = True
 
 #st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
-st.caption(
-    f"**{y_curr}**: {st.session_state.get('periodo_a_label', '—')}"
-    + (f" · **{y_old}**: {st.session_state.get('periodo_b_label', '—')}" if ha_confronto else "")
-    + (f" · **{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}" if ha_confronto else "")
-)
+st.caption(f"**{y_curr}**: {st.session_state.get('periodo_a_label', '—')}")
+st.caption(f" · **{y_old}**: {periodo_b[0]} → {periodo_b[1]}")
+st.caption(f" · **{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
 
 if data_2anni.empty:
     st.caption("Nessun dato nel DB per 'due anni precedenti': il confronto a 3 vie resterà vuoto.")
