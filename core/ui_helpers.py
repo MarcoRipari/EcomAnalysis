@@ -9,7 +9,7 @@ def guard_pipeline():
     """Ferma il rendering della pagina con un messaggio guida se la pipeline non è pronta."""
     pipe = st.session_state.get("pipeline")
     if pipe is None:
-        st.info("⬅️ Carica i dati e premi **Genera dati report** nella home per usare questa pagina.")
+        st.info("⬅️ Apri **⬆️ Carica Dati**, scegli periodo e perimetro e premi **Genera dati report** per usare questa pagina.")
         st.stop()
     return pipe
 
