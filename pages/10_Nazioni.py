@@ -24,6 +24,7 @@ standalone_old = pipe.esito_resi_old["standalone"]
 mostra_3_anno = False
 y_2anni = None
 data_2anni, standalone_2anni = current_data.iloc[0:0], standalone_current.iloc[0:0]
+periodo_a = st.session_state.get("sel_periodo_a")
 if st.session_state.get("sel_confronta_2anni", False):
     periodo_c = (shift_year(periodo_a[0], -2), shift_year(periodo_a[1], -2))
     conn = db.connect()
