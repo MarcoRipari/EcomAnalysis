@@ -91,3 +91,24 @@ if nuovo:
             st.success("✅ Fattore sostituito: dal telefono vecchio non si generano "
                        "più codici validi.")
             st.caption("La tabella si aggiorna al prossimo caricamento della pagina.")
+
+st.divider()
+
+# ------------------------------------------------------------------ cambio password
+st.subheader("Cambia password")
+with st.form("pwd_form"):
+    nuova = st.text_input("Nuova password", type="password", key="pwd_nuova")
+    ripeti = st.text_input("Ripeti la nuova password", type="password", key="pwd_ripeti")
+    cambia = st.form_submit_button("Aggiorna password", type="primary")
+if cambia:
+    if len(nuova) < 8:
+        st.error("La password deve avere almeno 8 caratteri.")
+    elif nuova != ripeti:
+        st.error("Le due password non coincidono.")
+    else:
+        try:
+            auth.update_password(sess["access_token"], nuova)
+        except auth.AuthError as e:
+            st.error(str(e))
+        else:
+            st.success("✅ Password aggiornata: dalla prossima volta usala per accedere.")
