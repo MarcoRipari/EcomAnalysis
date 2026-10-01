@@ -1,12 +1,16 @@
 """
-EcomAnalysis — guscio di navigazione (menu a gruppi espandibili).
+EcomAnalysis — guscio di navigazione (menu a gruppi espandibili) + cancello di accesso.
 
 Il menu della sidebar NON è quello automatico di Streamlit: è definito qui in modo
 dichiarativo (GRUPPI_MENU) e renderizzato con st.expander + st.page_link; il routing
 vero è gestito da st.navigation con position="hidden" (il menu automatico resta nascosto).
 
+Autenticazione: auth.require_session() in testa — senza una sessione valida
+(login Supabase + 2FA TOTP) mostra la schermata di accesso e blocca tutto il resto.
+La sessione sopravvive al refresh della pagina grazie al cookie col refresh token (v. core/auth.py).
+
 Come aggiungere una voce futura:
-1. crea il file della pagina (una pagina Streamlit qualsiasi, es. pages/12_Nuova.py);
+1. crea il file della pagina (una pagina Streamlit qualsiasi, es. pages/13_Nuova.py);
 2. qui sotto crea lo st.Page corrispondente;
 3. aggiungilo al gruppo desiderato dentro GRUPPI_MENU.
 
@@ -14,6 +18,13 @@ Nessuna logica di business qui: le pagine leggono la pipeline da
 st.session_state["pipeline"], generata nella pagina ⬆️ Carica Dati.
 """
 import streamlit as st
+
+from core import auth
+
+# ---------------------------------------------------------------------------------------
+# Cancello di accesso (login + eventuale 2FA) — blocca qui se non autenticati
+# ---------------------------------------------------------------------------------------
+sess = auth.require_session()
 
 # ---------------------------------------------------------------------------------------
 # Definizione delle pagine (l'ordine nel menu è dato da GRUPPI_MENU)
@@ -30,6 +41,7 @@ page_log_riconciliazione = st.Page("pages/08_Log_Riconciliazione.py", title="Log
 page_sell_through = st.Page("pages/09_Sell_Through.py", title="Sell-Through", icon="📦")
 page_nazioni = st.Page("pages/10_Nazioni.py", title="Nazioni", icon="🌍")
 page_report_unificato = st.Page("pages/11_Report_Unificato.py", title="Report Unificato", icon="🧾")
+page_account = st.Page("pages/12_Account.py", title="Account e 2FA", icon="🔐")
 
 SUB = "sub"  # voce non cliccabile: semplice sottotitolo visivo dentro un gruppo
 
@@ -59,6 +71,11 @@ GRUPPI_MENU = [
             page_report_unificato,
         ],
     },
+    {
+        "titolo": "⚙️ Account",
+        "espanso": False,
+        "voci": [page_account],
+    },
     # Gruppi futuri: aggiungere qui altri dizionari con la stessa struttura.
 ]
 
@@ -66,7 +83,7 @@ _pagine = [voce for gruppo in GRUPPI_MENU for voce in gruppo["voci"] if not isin
 pg = st.navigation(_pagine, position="hidden")
 
 # ---------------------------------------------------------------------------------------
-# Sidebar: menu a gruppi espandibili + stato della pipeline (visibile da ogni pagina)
+# Sidebar: menu a gruppi espandibili + stato della pipeline + utente
 # ---------------------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🧭 Menu")
@@ -91,5 +108,14 @@ with st.sidebar:
             + (f"\n\n**Confronto**: {_b}" if _b else "")
             + f"\n\n**Perimetro**: {_per}"
         )
+
+    st.divider()
+    st.caption(
+        f"👤 **{sess['user'].get('email', 'utente')}** · sessione "
+        f"{auth.DURATA_SESSIONE_GIORNI} giorni"
+    )
+    if st.button("🚪 Esci", use_container_width=True):
+        auth.logout(sess)
+        st.stop()   # il cookie pulito arriva al browser; al run successivo → login
 
 pg.run()
