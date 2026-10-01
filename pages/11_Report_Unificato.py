@@ -96,15 +96,15 @@ if mostra_3_anno:
 # né calcolato né renderizzato, quindi l'apertura della pagina è più rapida (le letture
 # dal DB in guard_pipeline restano comunque). Spunta il checkbox per vedere la tabella
 # e i pulsanti di download.
+unificata = rb.nazioni_unified_report(periodi_report, nazioni_scelte)
+if unificata.empty:
+        st.caption("Nessun dato disponibile per il report unificato.")
+        st.stop()
+    
 if not st.checkbox("Mostra la tabella unificata", value=False):
     st.caption("Tabella nascosta: spunta il checkbox per calcolare e mostrare il report (con i pulsanti CSV e MD).")
     st.stop()
 else:
-    unificata = rb.nazioni_unified_report(periodi_report, nazioni_scelte)
-    if unificata.empty:
-        st.caption("Nessun dato disponibile per il report unificato.")
-        st.stop()
-    
     cfg_unificata = {
         "Fatturato Netto": currency_col(),
         "Share %": percent_col(),
