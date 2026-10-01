@@ -5,8 +5,9 @@ Il menu della sidebar NON è quello automatico di Streamlit: è definito qui in 
 dichiarativo (GRUPPI_MENU) e renderizzato con st.expander + st.page_link; il routing
 vero è gestito da st.navigation con position="hidden" (il menu automatico resta nascosto).
 
-Autenticazione: auth.require_session() in testa — senza una sessione valida
-(login Supabase + 2FA TOTP) mostra la schermata di accesso e blocca tutto il resto.
+Autenticazione: st.navigation viene registrata PRIMA del cancello, poi
+auth.require_session(): senza una sessione valida (login Supabase + 2FA TOTP)
+mostra la schermata di accesso e blocca tutto il resto (menù compreso).
 La sessione sopravvive al refresh della pagina grazie al cookie col refresh token (v. core/auth.py).
 
 Come aggiungere una voce futura:
@@ -20,11 +21,6 @@ st.session_state["pipeline"], generata nella pagina ⬆️ Carica Dati.
 import streamlit as st
 
 from core import auth
-
-# ---------------------------------------------------------------------------------------
-# Cancello di accesso (login + eventuale 2FA) — blocca qui se non autenticati
-# ---------------------------------------------------------------------------------------
-sess = auth.require_session()
 
 # ---------------------------------------------------------------------------------------
 # Definizione delle pagine (l'ordine nel menu è dato da GRUPPI_MENU)
@@ -80,7 +76,16 @@ GRUPPI_MENU = [
 ]
 
 _pagine = [voce for gruppo in GRUPPI_MENU for voce in gruppo["voci"] if not isinstance(voce, tuple)]
+
+# La navigazione va registrata PRIMA del cancello: se require_session() ferma l'app
+# con st.stop() senza che st.navigation sia mai stato chiamato, Streamlit sostituisce
+# il menù con quello automatico "piatto" (le pagine trovate in pages/, non compresse).
 pg = st.navigation(_pagine, position="hidden")
+
+# ---------------------------------------------------------------------------------------
+# Cancello di accesso (login + 2FA + sessione persistente) — blocca qui se non autenticati
+# ---------------------------------------------------------------------------------------
+sess = auth.require_session()
 
 # ---------------------------------------------------------------------------------------
 # Sidebar: menu a gruppi espandibili + stato della pipeline + utente
@@ -115,7 +120,7 @@ with st.sidebar:
         f"{auth.DURATA_SESSIONE_GIORNI} giorni"
     )
     if st.button("🚪 Esci", use_container_width=True):
-        auth.logout(sess)
-        st.stop()   # il cookie pulito arriva al browser; al run successivo → login
+        auth.logout(sess)   # revoca il refresh token su Supabase
+        st.rerun()          # torna SUBITO alla schermata di login, come al primo accesso
 
 pg.run()
