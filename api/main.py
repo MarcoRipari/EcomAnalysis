@@ -674,7 +674,8 @@ def _rispondi_report(sezioni: list[tuple[str, pd.DataFrame]], fmt: str, parametr
 def report(
     tipo: str = Query(..., description="Report da estrarre",
                       pattern="^(" + "|".join(_TIPI_REPORT) + ")$"),
-    da: date, a: date,
+    da: date = Query(..., description="Inizio periodo scelto, YYYY-MM-DD"),
+    a: date = Query(..., description="Fine periodo scelto, YYYY-MM-DD"),
     confronti: int = Query(0, ge=0, le=2,
                            description="Anni di confronto: 0 = solo periodo scelto; "
                                        "1 = + anno-1; 2 = + anno-1 e anno-2 (massimo 2)"),
