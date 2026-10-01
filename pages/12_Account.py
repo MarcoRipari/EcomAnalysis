@@ -105,3 +105,108 @@ if cambia:
             st.error(str(e))
         else:
             st.success("✅ Password aggiornata: dalla prossima volta usala per accedere.")
+
+
+st.divider()
+
+# ------------------------------------------------------------------ chiavi API (fase 3)
+import hashlib
+import secrets as _secrets
+from datetime import datetime, timezone
+
+import requests as _rq
+
+st.subheader("🔑 Chiavi API — accesso esterno ai dati")
+st.caption(
+    "Una chiave API permette a Excel, Power BI, script o applicazioni di terze parti di "
+    "scaricare i dati dall'API di EcomAnalysis (https://TUODOMINIO/api/v1/…). "
+    "La chiave viene mostrata **solo alla creazione**: copiala e conservala subito. "
+    "Puoi revocarla quando vuoi (effetto entro 5 minuti). Pratica consigliata: "
+    "una chiave per strumento, così puoi revocarle separatamente."
+)
+
+
+def _api_supa_url() -> str:
+    return str(st.secrets.get("SUPABASE_URL") or "").rstrip("/")
+
+
+def _api_supa_headers(token: str) -> dict:
+    return {"apikey": str(st.secrets.get("SUPABASE_ANON_KEY") or ""),
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"}
+
+
+def _chiavi_api(token: str) -> list[dict]:
+    r = _rq.get(
+        _api_supa_url() + "/rest/v1/api_keys"
+        "?select=id,name,prefix,created_at,last_used_at,revoked_at"
+        "&order=created_at.desc&limit=50",
+        headers=_api_supa_headers(token), timeout=15)
+    if r.status_code != 200:
+        st.error(f"Impossibile leggere le chiavi API ({r.status_code}): "
+                 "hai eseguito lo script SQL della fase 3 su Supabase?")
+        return []
+    return r.json()
+
+
+def _fmt_key_data(s) -> str:
+    try:
+        return auth.fmt_data(s)
+    except Exception:
+        return str(s or "—")
+
+
+chiavi = _chiavi_api(sess["access_token"])
+attive = [k for k in chiavi if not k.get("revoked_at")]
+
+with st.expander("➕ Genera una nuova chiave", expanded=not attive):
+    with st.form("nuova_chiave_form"):
+        nome = st.text_input("Nome dello strumento (es. 'Power BI', 'Script report')",
+                             max_chars=40, key="api_key_nome")
+        genera = st.form_submit_button("Genera chiave", type="primary")
+    if genera:
+        if not nome.strip():
+            st.error("Dai un nome alla chiave.")
+        else:
+            chiave_nuova = "ecm_" + _secrets.token_urlsafe(32)
+            payload = {"name": nome.strip(),
+                       "prefix": chiave_nuova[:11],
+                       "key_hash": hashlib.sha256(chiave_nuova.encode()).hexdigest()}
+            r = _rq.post(_api_supa_url() + "/rest/v1/api_keys",
+                         headers={**_api_supa_headers(sess["access_token"]),
+                                  "Prefer": "return=minimal"},
+                         json=payload, timeout=15)
+            if r.status_code not in (200, 201):
+                st.error(f"Creazione fallita ({r.status_code}): {r.text[:200]}")
+            else:
+                st.success("✅ Chiave creata. Copiala ORA: non sarà più visibile.")
+                st.code(chiave_nuova, language=None)
+                st.caption("La tabella sotto si aggiorna al prossimo caricamento della pagina.")
+
+if not chiavi:
+    st.info("Nessuna chiave API creata finora.")
+else:
+    st.markdown("**Chiavi esistenti**")
+    for k in chiavi:
+        c1, c2 = st.columns([4, 1])
+        stato = "🟢 Attiva" if not k.get("revoked_at") else "🔴 Revocata"
+        with c1:
+            st.markdown(
+                f"**{k.get('name')}** · `{k.get('prefix')}…` · {stato} · "
+                f"creata il {_fmt_key_data(k.get('created_at'))} · "
+                f"ultimo uso: {_fmt_key_data(k.get('last_used_at'))}"
+            )
+        with c2:
+            if not k.get("revoked_at") and st.button("Revoca", key=f"rev_{k['id']}",
+                                                    use_container_width=True):
+                r = _rq.patch(
+                    _api_supa_url() + f"/rest/v1/api_keys?id=eq.{k['id']}",
+                    headers=_api_supa_headers(sess["access_token"]),
+                    json={"revoked_at": datetime.now(timezone.utc).isoformat()},
+                    timeout=15)
+                if r.status_code == 200:
+                    st.success(f"Chiave '{k.get('name')}' revocata: entro 5 minuti ogni "
+                               "richiesta con quella chiave verrà rifiutata.")
+                    st.rerun()
+                else:
+                    st.error(f"Revoca fallita ({r.status_code}): {r.text[:200]}")
