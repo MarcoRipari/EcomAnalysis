@@ -156,15 +156,24 @@ def _session_from(data: dict) -> dict:
 
 def _completa_sessione(sess: dict) -> dict:
     """Aggiunge sess['ha_fattori'] = True se esiste almeno un fattore TOTP verificato."""
-    sess["ha_fattori"] = any(f.get("status") == "verified"
+    sess["ha_fattori"] = any(f.get("status") == "verified" and f.get("factor_type") == "totp"
                              for f in list_factors(sess["access_token"]))
     return sess
 
 
 # ------------------------------------------------------------------ API Supabase Auth
-# Endpoint MFA di GoTrue (verificati): /auth/v1/factors — NON /auth/v1/mfa/...
+# Endpoint MFA di GoTrue (verificati sui sorgenti supabase/auth → internal/api/api.go):
+#   POST   /auth/v1/factors                 → enroll (QR code + secret)
+#   POST   /auth/v1/factors/{id}/challenge  → apre la challenge
+#   POST   /auth/v1/factors/{id}/verify     → verifica il codice (nuova sessione aal2)
+#   DELETE /auth/v1/factors/{id}            → rimuove il fattore
+#   GET /auth/v1/factors NON ESISTE (sul router c'è solo POST /factors) → risponde
+#   405 Method Not Allowed. L'elenco dei fattori si legge da GET /auth/v1/user,
+#   campo "factors" dell'utente — è così che è implementato oggi supabase.auth.mfa.listFactors().
 def list_factors(access_token: str) -> list[dict]:
-    return _call("GET", "factors", access_token=access_token)
+    data = _call("GET", "user", access_token=access_token)
+    user = data.get("user") or data   # copre entrambe le forme di risposta
+    return user.get("factors") or []
 
 
 def sign_in_with_password(email: str, password: str) -> dict:
@@ -190,7 +199,7 @@ def verify_challenge(access_token: str, factor_id: str, challenge_id: str, code:
 def verify_totp(session: dict, code: str) -> dict:
     """Step-up al login: cerca il fattore TOTP verificato e verifica il codice."""
     fattori = [f for f in list_factors(session["access_token"])
-               if f.get("status") == "verified"]
+               if f.get("status") == "verified" and f.get("factor_type") == "totp"]
     if not fattori:
         raise AuthError("Nessun fattore TOTP verificato su questo account.")
     fid = fattori[0]["id"]
