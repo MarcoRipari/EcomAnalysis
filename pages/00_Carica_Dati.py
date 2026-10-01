@@ -45,7 +45,7 @@ else:
         )
         perimetro = {"TOTALE (Diretti + Logistica Esterna)": "1", "SOLO DIRETTI": "2",
                      "SOLO LOGISTICA ESTERNA (ZFS/FBA/AMZ)": "3"}[perimetro_label]
-        
+
         periodo_a = st.date_input(
             "Periodo corrente",
             value=(max(data_min, shift_year(data_max, -1)), data_max),
@@ -82,14 +82,12 @@ else:
             anagrafica_file = st.file_uploader("ANAGRAFICA", type=["csv", "txt"], key="anag_home")
             if anagrafica_file is not None:
                 st.session_state["anagrafica_file"] = anagrafica_file
-    
-        periodo_a_ok = isinstance(periodo_a, tuple) and len(periodo_a) == 2
-        periodo_b_ok = (not confronta) or (isinstance(periodo_b, tuple) and len(periodo_b) == 2)
+
         genera = st.button(
             "▶️ Genera dati report", type="primary", use_container_width=True,
             disabled=not periodo_a_ok,
         )
-    
+
         if genera:
             anagrafica = (
                 engine.load_anagrafica(st.session_state["anagrafica_file"])
