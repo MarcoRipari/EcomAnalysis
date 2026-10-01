@@ -49,16 +49,28 @@ class AuthError(Exception):
 def _ensure_config() -> None:
     if st.session_state.get("_sb_config_ok"):
         return
-    url = st.secrets.get("SUPABASE_URL")
-    key = st.secrets.get("SUPABASE_ANON_KEY")
+    url = str(st.secrets.get("SUPABASE_URL") or "").strip().strip('"\'')
+    key = str(st.secrets.get("SUPABASE_ANON_KEY") or "").strip().strip('"\'')
     if not url or not key:
         st.error(
             "Secrets mancanti: configura **SUPABASE_URL** e **SUPABASE_ANON_KEY** "
-            "(chiave anon/public di Supabase) nei secrets di Streamlit."
+            "(chiave Publishable/anon di Supabase) nei secrets di Streamlit."
         )
         st.stop()
-    st.session_state["_sb_url"] = str(url).rstrip("/")
-    st.session_state["_sb_anon_key"] = str(key)
+    # Igiene dell'URL: via spazi e virgolette, via slash finale e, soprattutto, via
+    # un eventuale "/auth/v1" o "/auth" già presente (verrebbe duplicato in _call → 404)
+    url = url.rstrip("/")
+    for suffisso in ("/auth/v1", "/auth"):
+        if url.endswith(suffisso):
+            url = url[: -len(suffisso)].rstrip("/")
+    if not url.startswith("https://") or "." not in url:
+        st.error(
+            f"**SUPABASE_URL non valida**: deve essere nella forma "
+            f"https://&lt;progetto&gt;.supabase.co (valore letto: “{url}”)."
+        )
+        st.stop()
+    st.session_state["_sb_url"] = url
+    st.session_state["_sb_anon_key"] = key
     st.session_state["_sb_config_ok"] = True
 
 
@@ -97,9 +109,24 @@ def _call(method: str, path: str, *, json_body=None, params=None, access_token=N
         try:
             err = r.json()
         except ValueError:
-            raise AuthError(f"Supabase ha risposto con errore {r.status_code}.")
+            corpo = (r.text or "")[:300].strip()
+            if r.status_code == 404:
+                raise AuthError(
+                    f"**404 da Supabase** su `/{path}`: endpoint non trovato. Nel 99% dei "
+                    f"casi SUPABASE_URL non è quella giusta — deve essere ESATTAMENTE "
+                    f"https://<progetto>.supabase.co, senza percorsi extra. "
+                    f"Valore in uso: {st.session_state['_sb_url']}. "
+                    f"Verifica aprendo nel browser "
+                    f"{st.session_state['_sb_url']}/auth/v1/health "
+                    f"(deve mostrare un JSON GoTrue). Dettagli: {corpo or 'nessun corpo'}"
+                )
+            raise AuthError(
+                f"Supabase ha risposto con errore {r.status_code}: {corpo or 'nessun dettaglio'}"
+            )
         msg = (err.get("error_description") or err.get("msg") or err.get("message")
-               or err.get("error") or r.text or "").strip()
+               or err.get("error") or "").strip()
+        if not msg:
+            msg = (r.text or "")[:200].strip() or f"HTTP {r.status_code}"
         raise AuthError(_traduci(msg))
     return r.json()
 
