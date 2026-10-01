@@ -53,7 +53,7 @@ COOKIE_NAME = "ecom_sb_session"
 # Nei run NON autenticati la sidebar viene nascosta via CSS (Streamlit non ha un'API
 # per comprimerla programmaticamente): la schermata di login appare identica al primo
 # accesso e dopo il logout, senza la strip vuota di sidebar. In più il contenuto viene
-# costretto alla larghezza "centered" (730px): dopo il logout il layout erediterebbe
+# costretto alla larghezza "centered" (736px): dopo il logout il layout erediterebbe
 # quello "wide" dell'ultima pagina visitata e il box login si allargherebbe a 3/4 di
 # schermo. Il CSS sta DENTRO il placeholder della UI di accesso: appena
 # l'autenticazione riesce il placeholder viene svuotato, il CSS sparisce e menù e
@@ -63,8 +63,8 @@ _CSS_LOGIN = """
   section[data-testid="stSidebar"] { display: none !important; }
   div[data-testid="stSidebarCollapsedControl"] { display: none !important; }
   div[data-testid="collapsedControl"] { display: none !important; }
-  [data-testid="stMainBlockContainer"] { max-width: 730px !important; margin: 0 auto !important; }
-  .block-container { max-width: 730px !important; margin: 0 auto !important; }
+  [data-testid="stMainBlockContainer"] { max-width: 736px !important; margin: 0 auto !important; }
+  .block-container { max-width: 736px !important; margin: 0 auto !important; }
 </style>
 """
 
