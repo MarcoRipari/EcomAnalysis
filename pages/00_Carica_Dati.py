@@ -35,7 +35,7 @@ else:
         f"Copertura dati nel DB (Data Pagamento): dal **{stats['data_min']}** al **{stats['data_max']}**."
     )
 
-    col_periodi, col_perimetro, col_vuota, col_pulsanti = st.columns([2, 1, 1, 2])
+    col_periodi, col_pulsanti, col_vuota = st.columns([2, 2, 2])
 
     with col_periodi:
         perimetro_label = st.radio(
