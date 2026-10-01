@@ -19,7 +19,9 @@ Come funziona
   di mostrare qualsiasi pagina.
 - Regola tecnica: il cookie viene scritto/ripulito lato client con un micro-iframe
   JS. NON chiamare st.rerun() nello stesso run di una scrittura cookie: l'iframe
-  non farebbe in tempo ad arrivare al browser.
+  non farebbe in tempo ad arrivare al browser. UNICA ECCEZIONE: dopo logout() è
+  ammesso lo st.rerun(), perché il refresh token è già revocato lato Supabase (il
+  run successivo, con refresh fallito, ripulisce comunque il cookie).
 
 Secrets richiesti (Streamlit Cloud → Manage app → Secrets; in locale
 .streamlit/secrets.toml, da NON committare):
@@ -32,10 +34,17 @@ from __future__ import annotations
 import base64
 import json
 import time
+from datetime import datetime, timezone
 
 import requests
 import streamlit as st
 from streamlit.components.v1 import html as _iframe_html
+
+try:
+    from zoneinfo import ZoneInfo
+    _TZ = ZoneInfo("Europe/Rome")
+except Exception:   # fuso non disponibile (raro): si resta sul fuso del server
+    _TZ = timezone.utc
 
 # ------------------------------------------------------------------ configurazione
 DURATA_SESSIONE_GIORNI = 30   # durata "X": persistenza del login (cookie + refresh)
@@ -44,6 +53,17 @@ COOKIE_NAME = "ecom_sb_session"
 
 class AuthError(Exception):
     """Errore di autenticazione con messaggio già pronto per l'utente."""
+
+
+def fmt_data(iso: str) -> str:
+    """Data ISO di Supabase (UTC) → '31/12/2026 24:59:59' nel fuso Europe/Rome."""
+    try:
+        dt = datetime.fromisoformat((iso or "").replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_TZ).strftime("%d/%m/%Y %H:%M:%S")
+    except Exception:
+        return (iso or "").strip() or "—"
 
 
 # ------------------------------------------------------------------ client REST
@@ -220,7 +240,7 @@ def confirm_enroll(session: dict, factor_id: str, code: str) -> dict:
     return verify_challenge(session["access_token"], factor_id, ch_id, code)
 
 
-def enroll_totp(access_token: str, friendly_name: str = "App TOTP",
+def enroll_totp(access_token: str, friendly_name: str = "Accesso 2FA",
                issuer: str = "EcomApp") -> dict:
     # issuer = nome che l'app TOTP mostra per il secret ("EcomApp:test@test.it").
     # Se non lo si passa, GoTrue usa l'host del Site URL del progetto (es. "localhost:3000").
@@ -235,6 +255,18 @@ def enroll_totp(access_token: str, friendly_name: str = "App TOTP",
 
 def unenroll_factor(access_token: str, factor_id: str) -> None:
     _call("DELETE", f"factors/{factor_id}", access_token=access_token)
+
+
+def pulisci_fattori(access_token: str) -> None:
+    """Rimuove TUTTI i fattori TOTP dell'utente (verificati e non). Da chiamare PRIMA
+    di un nuovo enroll: GoTrue rifiuta due fattori con lo stesso friendly_name
+    (422 mfa_factor_name_conflict) e conta anche i non verificati nel limite massimo."""
+    for f in list_factors(access_token):
+        if f.get("factor_type") == "totp":
+            try:
+                unenroll_factor(access_token, f["id"])
+            except Exception:
+                pass
 
 
 def update_password(access_token: str, nuova_password: str) -> None:
@@ -325,9 +357,11 @@ def require_session() -> dict:
 
 
 def logout(session: dict) -> None:
-    """Revoca su Supabase, pulisce memoria e cookie. NON chiamare st.rerun() dopo:
-    il run corrente termina (st.stop in app.py), il cookie pulito arriva al browser
-    e il run successivo mostra la login."""
+    """Revoca la sessione su Supabase (il refresh token nel cookie diventa subito
+    inutilizzabile) e pulisce memoria e cookie. Dopo logout() è AMMESSO st.rerun()
+    (app.py lo fa per tornare subito alla login): anche se l'iframe di pulizia del
+    cookie andasse perso nel rerun, il run successivo fallisce il refresh e ripulisce
+    comunque il cookie."""
     revoke_session(session)
     st.session_state.pop("auth", None)
     st.session_state.pop("auth_pending", None)
@@ -351,7 +385,7 @@ def qr_component(qr_code: str) -> None:
             height=240,
         )
     else:   # fallback: data-URI o URL di un'immagine
-        _iframe_html(f'{qr}', height=240)
+        _iframe_html(f'<img src="{qr}" width="220" alt="QR TOTP"/>', height=240)
 
 
 def _login_flow() -> None:
@@ -406,8 +440,8 @@ def _enroll_flow(sess: dict) -> None:
     enroll = st.session_state.get("_enroll_attivo")
     if enroll is None:
         try:
-            nome = f"App TOTP {time.strftime('%d/%m/%Y %H:%M:%S')}"
-            enroll = enroll_totp(sess["access_token"], nome)
+            pulisci_fattori(sess["access_token"])   # via eventuali enroll incompleti (nome già usato)
+            enroll = enroll_totp(sess["access_token"], "Accesso 2FA")
         except AuthError as e:
             st.error(f"Impossibile generare il QR per la 2FA: {e}")
             return
