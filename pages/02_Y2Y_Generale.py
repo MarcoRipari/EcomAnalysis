@@ -12,7 +12,7 @@ st.title("📈 Comparativa Year-over-Year — Generale")
 pipe = guard_pipeline()
 
 if pipe.old_data.empty:
-    st.warning("Attiva **Confronta con un altro periodo (Y2Y)** in **⬆️ Carica Dati** e rigenera i dati per abilitare i confronti Y2Y.")
+    st.warning("L'anno−1 non è coperto dal DB: non ci sono dati da confrontare. Scegli un periodo il cui anno precedente sia coperto in **⬆️ Carica Dati** e rigenera.")
     st.stop()
 
 y_curr, y_old = period_labels(2)
@@ -25,9 +25,8 @@ current_data, old_data = pipe.current_data, pipe.old_data
 resi_standalone_current = pipe.esito_resi_current["standalone"]
 resi_standalone_old = pipe.esito_resi_old["standalone"]
 
-# --- Confronto opzionale a 3 vie (solo su questa pagina): "due anni precedenti", calcolato
-# automaticamente spostando di un altro anno il periodo scelto in home — non richiede una
-# terza selezione di date, per non appesantire la home per gli altri report che restano a 2.
+# --- Anno−2 opzionale (spunta "Confronta anche 2 anni precedenti" in ⬆️ Carica Dati):
+# calcolato automaticamente spostando di due anni il periodo scelto in home.
 periodo_a = st.session_state.get("sel_periodo_a")
 mostra_3_vie = bool(periodo_a and st.session_state.get("sel_confronta_2anni", False))
 
@@ -40,7 +39,7 @@ if mostra_3_vie:
     y_2anni = period_labels(3)[2]
     st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
     if data_2anni.empty:
-        st.caption("Nessun dato nel DB per 'due anni precedenti': il confronto a 3 vie resterà vuoto.")
+        st.caption("Nessun dato nel DB per l'anno−2: il confronto resterà vuoto.")
 
 diretto_pred = lambda df: df["tipoSpedizione"] == "DIRETTO"
 zalando_pred = lambda df: df["ordineId"].str.contains("_ZFS", na=False) if not df.empty else df.index < 0
