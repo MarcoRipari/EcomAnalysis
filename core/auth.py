@@ -129,7 +129,13 @@ def _call(method: str, path: str, *, json_body=None, params=None, access_token=N
         if not msg:
             msg = (r.text or "")[:200].strip() or f"HTTP {r.status_code}"
         raise AuthError(_traduci(msg))
-    return r.json()
+    # 204 No Content (es. POST /logout) o corpo non-JSON: nessun dato da restituire
+    if not (r.text or "").strip():
+        return {}
+    try:
+        return r.json()
+    except ValueError:
+        return {}
 
 
 # ------------------------------------------------------------------ sessione/JWT
@@ -214,9 +220,13 @@ def confirm_enroll(session: dict, factor_id: str, code: str) -> dict:
     return verify_challenge(session["access_token"], factor_id, ch_id, code)
 
 
-def enroll_totp(access_token: str, friendly_name: str = "App TOTP") -> dict:
+def enroll_totp(access_token: str, friendly_name: str = "App TOTP",
+               issuer: str = "EcomApp") -> dict:
+    # issuer = nome che l'app TOTP mostra per il secret ("EcomApp:test@test.it").
+    # Se non lo si passa, GoTrue usa l'host del Site URL del progetto (es. "localhost:3000").
     data = _call("POST", "factors",
-                 json_body={"factor_type": "totp", "friendly_name": friendly_name},
+                 json_body={"factor_type": "totp", "friendly_name": friendly_name,
+                            "issuer": issuer},
                  access_token=access_token)
     totp = data.get("totp") or {}
     return {"id": data.get("id"), "secret": totp.get("secret", ""),
@@ -225,6 +235,12 @@ def enroll_totp(access_token: str, friendly_name: str = "App TOTP") -> dict:
 
 def unenroll_factor(access_token: str, factor_id: str) -> None:
     _call("DELETE", f"factors/{factor_id}", access_token=access_token)
+
+
+def update_password(access_token: str, nuova_password: str) -> None:
+    """Cambia la password dell'utente autenticato (PUT /auth/v1/user)."""
+    _call("PUT", "user", json_body={"password": nuova_password},
+          access_token=access_token)
 
 
 def refresh_session(refresh_token: str) -> dict:
@@ -236,7 +252,7 @@ def refresh_session(refresh_token: str) -> dict:
 def revoke_session(session: dict) -> None:
     try:
         _call("POST", "logout", access_token=session["access_token"])
-    except AuthError:
+    except Exception:   # il logout non deve MAI fallire: è solo pulizia lato Supabase
         pass
 
 
