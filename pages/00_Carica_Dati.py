@@ -35,7 +35,7 @@ else:
         f"Copertura dati nel DB (Data Pagamento): dal **{stats['data_min']}** al **{stats['data_max']}**."
     )
 
-    col_periodi, col_perimetro, col_vuota = st.columns([2, 2, 2])
+    col_vuota1, col_periodi, col_perimetro, col_vuota2 = st.columns([1, 2, 2, 1])
 
     with col_periodi:
         periodo_a = st.date_input(
@@ -61,45 +61,44 @@ else:
         perimetro = {"TOTALE (Diretti + Logistica Esterna)": "1", "SOLO DIRETTI": "2",
                      "SOLO LOGISTICA ESTERNA (ZFS/FBA/AMZ)": "3"}[perimetro_label]
         
-    with st.columns(4):
-        with st.expander("🖼️ Anagrafica articoli (facoltativa)"):
-            st.caption("Serve per descrizioni, serie, classificazione per genere (Taglie) e foto. Vale per tutta la sessione.")
-            anagrafica_file = st.file_uploader("ANAGRAFICA", type=["csv", "txt"], key="anag_home")
-            if anagrafica_file is not None:
-                st.session_state["anagrafica_file"] = anagrafica_file
-    
-        periodo_a_ok = isinstance(periodo_a, tuple) and len(periodo_a) == 2
-        periodo_b_ok = (not confronta) or (isinstance(periodo_b, tuple) and len(periodo_b) == 2)
-        genera = st.button(
-            "▶️ Genera dati report", type="primary", use_container_width=True,
-            disabled=not (periodo_a_ok and periodo_b_ok),
+    with st.expander("🖼️ Anagrafica articoli (facoltativa)"):
+        st.caption("Serve per descrizioni, serie, classificazione per genere (Taglie) e foto. Vale per tutta la sessione.")
+        anagrafica_file = st.file_uploader("ANAGRAFICA", type=["csv", "txt"], key="anag_home")
+        if anagrafica_file is not None:
+            st.session_state["anagrafica_file"] = anagrafica_file
+
+    periodo_a_ok = isinstance(periodo_a, tuple) and len(periodo_a) == 2
+    periodo_b_ok = (not confronta) or (isinstance(periodo_b, tuple) and len(periodo_b) == 2)
+    genera = st.button(
+        "▶️ Genera dati report", type="primary", use_container_width=True,
+        disabled=not (periodo_a_ok and periodo_b_ok),
+    )
+
+    if genera:
+        anagrafica = (
+            engine.load_anagrafica(st.session_state["anagrafica_file"])
+            if st.session_state.get("anagrafica_file") else {}
         )
-    
-        if genera:
-            anagrafica = (
-                engine.load_anagrafica(st.session_state["anagrafica_file"])
-                if st.session_state.get("anagrafica_file") else {}
-            )
-            with st.spinner("Interrogazione DB…"):
-                try:
-                    result = pl.build_pipeline_from_db(
-                        conn,
-                        periodo_current=periodo_a,
-                        periodo_old=periodo_b if (confronta and periodo_b_ok) else None,
-                        perimetro=perimetro,
-                        anagrafica=anagrafica,
-                    )
-                    st.session_state["pipeline"] = result
-                    st.session_state["perimetro_label"] = perimetro_label
-                    st.session_state["sel_periodo_a"] = periodo_a
-                    st.session_state["sel_periodo_b"] = periodo_b if (confronta and periodo_b_ok) else None
-                    st.session_state["periodo_a_label"] = f"{periodo_a[0]} → {periodo_a[1]}"
-                    st.session_state["periodo_b_label"] = (
-                        f"{periodo_b[0]} → {periodo_b[1]}" if (confronta and periodo_b_ok) else None
-                    )
-                except Exception as e:
-                    st.exception(e)
-                    st.stop()
+        with st.spinner("Interrogazione DB…"):
+            try:
+                result = pl.build_pipeline_from_db(
+                    conn,
+                    periodo_current=periodo_a,
+                    periodo_old=periodo_b if (confronta and periodo_b_ok) else None,
+                    perimetro=perimetro,
+                    anagrafica=anagrafica,
+                )
+                st.session_state["pipeline"] = result
+                st.session_state["perimetro_label"] = perimetro_label
+                st.session_state["sel_periodo_a"] = periodo_a
+                st.session_state["sel_periodo_b"] = periodo_b if (confronta and periodo_b_ok) else None
+                st.session_state["periodo_a_label"] = f"{periodo_a[0]} → {periodo_a[1]}"
+                st.session_state["periodo_b_label"] = (
+                    f"{periodo_b[0]} → {periodo_b[1]}" if (confronta and periodo_b_ok) else None
+                )
+            except Exception as e:
+                st.exception(e)
+                st.stop()
 
 pipe = st.session_state.get("pipeline")
 if pipe is not None:
