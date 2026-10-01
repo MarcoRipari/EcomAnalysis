@@ -1,5 +1,6 @@
+import time
+
 import streamlit as st
-from streamlit.components.v1 import html as _iframe_html
 
 from core import auth
 
@@ -20,93 +21,73 @@ st.caption(
 
 st.divider()
 
-# ------------------------------------------------------------------ fattori esistenti
-st.subheader("Fattori 2FA registrati")
+# ------------------------------------------------------------------ fattore attivo
+st.subheader("Fattore 2FA attivo")
 try:
-    fattori = auth.list_factors(sess["access_token"])
+    fattori = [f for f in auth.list_factors(sess["access_token"])
+               if f.get("factor_type") == "totp" and f.get("status") == "verified"]
 except auth.AuthError as e:
     st.error(str(e))
     st.stop()
 
 if not fattori:
-    st.caption(
-        "Nessun fattore attivo: questo account entra con la sola password. "
-        "Si consiglia vivamente di attivare la 2FA qui sotto."
+    st.warning(
+        "Nessun fattore TOTP attivo: al prossimo accesso l'app chiederà di attivarne uno."
     )
 else:
     st.table([
-        {"Nome": f.get("friendly_name"), "Tipo": f.get("factor_type"),
-         "Stato": f.get("status"), "ID": f.get("id")}
+        {"Nome": f.get("friendly_name"), "Creato il": f.get("created_at", "—"),
+         "ID": f.get("id")}
         for f in fattori
     ])
 
 st.divider()
 
-# ------------------------------------------------------------------ attivazione (enroll)
-st.subheader("Attiva 2FA — QR code + secret")
+# ------------------------------------------------------------------ sostituzione (cambio telefono)
+st.subheader("Sostituisci il fattore (es. cambio telefono)")
 st.caption(
-    "Genera il QR, scansionalo con la tua app TOTP (Google Authenticator, 1Password, "
-    "Aegis, …) oppure inserisci a mano il secret, poi conferma con un codice."
+    "Un solo fattore TOTP è più che sufficiente: il secret funziona su qualsiasi "
+    "dispositivo/app. Qui lo rigeneri per il telefono nuovo — **il fattore attuale "
+    "viene rimosso solo dopo che quello nuovo è verificato**, così non resti mai "
+    "senza 2FA."
 )
 
-with st.form("enroll_form"):
-    nome = st.text_input("Nome del fattore (libero, es. 'iPhone')", value="App TOTP")
-    avvia = st.form_submit_button("1️⃣ Genera QR code e secret")
-
-if avvia:
+if st.button("1️⃣ Genera nuovo QR code e secret"):
     try:
-        fattore = auth.enroll_totp(sess["access_token"], nome or "App TOTP")
-        st.session_state["_enroll"] = fattore
+        nome = f"App TOTP {time.strftime('%d/%m/%Y %H:%M:%S')}"
+        st.session_state["_sostituisci"] = auth.enroll_totp(sess["access_token"], nome)
     except auth.AuthError as e:
         st.error(str(e))
 
-enroll = st.session_state.get("_enroll")
-if enroll:
+nuovo = st.session_state.get("_sostituisci")
+if nuovo:
     c1, c2 = st.columns([1, 2])
     with c1:
-        if enroll["qr_code"]:
-            _iframe_html(f'<img src="{enroll["qr_code"]}" width="220" alt="QR TOTP"/>',
-                        height=260)
+        auth.qr_component(nuovo["qr_code"])
     with c2:
         st.markdown("**Secret** (inserimento manuale nell'app TOTP):")
-        st.code(enroll["secret"], language=None)
-        if enroll["uri"]:
-            st.caption(f"URI otpauth: `{enroll['uri']}`")
-    with st.form("verify_enroll_form"):
-        code = st.text_input("2️⃣ Codice a 6 cifre generato dall'app",
-                             max_chars=6, key="verify_enroll_code")
-        conferma = st.form_submit_button("3️⃣ Conferma e attiva la 2FA", type="primary")
+        st.code(nuovo["secret"], language=None)
+        if nuovo.get("uri"):
+            st.caption(f"URI otpauth: `{nuovo['uri']}`")
+    with st.form("verify_sostituisci_form"):
+        code = st.text_input("2️⃣ Codice a 6 cifre generato dalla NUOVA app",
+                             max_chars=6, key="verify_sostituisci_code")
+        conferma = st.form_submit_button("3️⃣ Conferma e sostituisci", type="primary")
     if conferma:
         try:
-            full = auth.confirm_enroll(sess, enroll["id"], code.strip().replace(" ", ""))
+            full = auth.confirm_enroll(sess, nuovo["id"], code.strip().replace(" ", ""))
         except auth.AuthError as e:
             st.error(str(e))
         else:
-            st.session_state.pop("_enroll", None)
-            auth.remember_session(full)
-            st.success("✅ 2FA attivata: dal prossimo login verrà chiesto anche il codice TOTP.")
-            st.caption("La tabella fattori si aggiorna al prossimo caricamento della pagina.")
-
-st.divider()
-
-# ------------------------------------------------------------------ rimozione fattore
-st.subheader("Rimuovi un fattore")
-verificati = [f for f in fattori
-              if f.get("status") == "verified" and f.get("factor_type") == "totp"]
-if not verificati:
-    st.caption("Nessun fattore verificato da rimuovere.")
-else:
-    opzioni = {f["id"]: f.get("friendly_name") or f["id"] for f in verificati}
-    with st.form("unenroll_form"):
-        scelto = st.selectbox("Fattore", list(opzioni.keys()),
-                              format_func=lambda i: opzioni[i])
-        rimuovi = st.form_submit_button("Rimuovi fattore")
-    if rimuovi:
-        try:
-            auth.unenroll_factor(sess["access_token"], scelto)
-        except auth.AuthError as e:
-            st.error(str(e))
-        else:
-            st.session_state["auth"]["ha_fattori"] = False
-            st.success("Fattore rimosso.")
+            # rimuovi i vecchi fattori TOTP verificati: resta attivo solo quello nuovo
+            for f in fattori:
+                if f.get("id") != nuovo["id"]:
+                    try:
+                        auth.unenroll_factor(sess["access_token"], f["id"])
+                    except auth.AuthError:
+                        pass
+            st.session_state.pop("_sostituisci", None)
+            auth.remember_session(full)   # sessione aal2 nuova — niente st.rerun dopo
+            st.success("✅ Fattore sostituito: dal telefono vecchio non si generano "
+                       "più codici validi.")
             st.caption("La tabella si aggiorna al prossimo caricamento della pagina.")
