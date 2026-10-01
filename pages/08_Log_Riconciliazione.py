@@ -7,7 +7,7 @@ st.title("🔍 Log Riconciliazione")
 st.caption(
     "Storico permanente di tutti i caricamenti RESI: ogni riga viene loggata al momento "
     "dell'upload (convertita, duplicata o rimborso extra), indipendentemente dal periodo poi "
-    "scelto in home per i report."
+    "scelto in ⬆️ Carica Dati per i report."
 )
 
 conn = db.connect()
