@@ -35,7 +35,7 @@ else:
         f"Copertura dati nel DB (Data Pagamento): dal **{stats['data_min']}** al **{stats['data_max']}**."
     )
 
-    col_periodi, col_perimetro = st.columns([3, 2])
+    col_periodi, col_vuota, col_perimetro = st.columns([2, 2, 2])
 
     with col_periodi:
         periodo_a = st.date_input(
@@ -43,7 +43,7 @@ else:
             value=(max(data_min, shift_year(data_max, -1)), data_max),
             min_value=data_min, max_value=data_max, key="periodo_a",
         )
-        confronta = st.checkbox("Confronta con un altro periodo (Y2Y)", value=True)
+        confronta = st.checkbox("Confronta con un altro periodo (Y2Y)", value=False)
         periodo_b = None
         if confronta and isinstance(periodo_a, tuple) and len(periodo_a) == 2:
             default_b = (max(data_min, shift_year(periodo_a[0], -1)), min(data_max, shift_year(periodo_a[1], -1)))
