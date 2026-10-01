@@ -91,7 +91,8 @@ st.divider()
 
 # ------------------------------------------------------------------ rimozione fattore
 st.subheader("Rimuovi un fattore")
-verificati = [f for f in fattori if f.get("status") == "verified"]
+verificati = [f for f in fattori
+              if f.get("status") == "verified" and f.get("factor_type") == "totp"]
 if not verificati:
     st.caption("Nessun fattore verificato da rimuovere.")
 else:
