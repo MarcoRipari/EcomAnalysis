@@ -8,8 +8,8 @@ from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_co
 st.set_page_config(page_title="Report Unificato", page_icon="🧾", layout="wide")
 st.title("🧾 Report unificato 3 anni — Marketplace × Nazione × Brand")
 st.caption(
-    "Un report per ciascun anno di confronto (Range selezionato, Anno precedente, Due anni "
-    "precedenti) con righe aggregate per scope: DETAIL, MARKETPLACE_COUNTRY, MARKETPLACE_BRAND, "
+    "Un report per ciascun anno di confronto (anno del periodo scelto, anno−1, anno−2) "
+    "con righe aggregate per scope: DETAIL, MARKETPLACE_COUNTRY, MARKETPLACE_BRAND, "
     "COUNTRY_BRAND, GLOBAL_MARKETPLACE, GLOBAL_COUNTRY, GLOBAL_BRAND, GLOBAL. "
     "Tutte le nazioni presenti nei dati sono incluse automaticamente; le righe GLOBAL sono "
     "sempre presenti. Share % = peso sul fatturato GLOBAL dello stesso anno. "
@@ -59,26 +59,27 @@ ha_confronto = not pipe.old_data.empty
 current_data = pipe.current_data
 old_data = pipe.old_data
 
-# Terzo anno di confronto (due anni precedenti), stessa logica della pagina Nazioni
+# Terzo anno di confronto: SOLO se la spunta "Confronta anche 2 anni precedenti"
+# è attiva in ⬆️ Carica Dati (stessa logica della pagina Nazioni).
 mostra_3_anno = False
 periodo_a = st.session_state.get("sel_periodo_a")
-periodo_b = (shift_year(periodo_a[0], -1), shift_year(periodo_a[1], -1))
-periodo_c = (shift_year(periodo_a[0], -2), shift_year(periodo_a[1], -2))
+periodo_b = st.session_state.get("sel_periodo_b")
 y_2anni = None
 data_2anni = current_data.iloc[0:0]
-conn = db.connect()
-data_2anni, standalone_2anni = db.query_period(conn, *periodo_c, pipe.perimetro)
-y_2anni = period_labels(3)[2]
-if not data_2anni.empty:
-    mostra_3_anno = True
+if st.session_state.get("sel_confronta_2anni", False):
+    periodo_c = (shift_year(periodo_a[0], -2), shift_year(periodo_a[1], -2))
+    conn = db.connect()
+    data_2anni, standalone_2anni = db.query_period(conn, *periodo_c, pipe.perimetro)
+    y_2anni = period_labels(3)[2]
+    if not data_2anni.empty:
+        mostra_3_anno = True
 
-#st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
 st.caption(f"**{y_curr}**: {st.session_state.get('periodo_a_label', '—')}")
-st.caption(f"**{y_old}**: {periodo_b[0]} → {periodo_b[1]}")
-st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
-
-if data_2anni.empty:
-    st.caption("Nessun dato nel DB per 'due anni precedenti': il confronto a 3 vie resterà vuoto.")
+st.caption(f"**{y_old}**: {periodo_b[0]} → {periodo_b[1]}" if periodo_b else "—")
+if y_2anni:
+    st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
+    if data_2anni.empty:
+        st.caption("Nessun dato nel DB per l'anno−2: il confronto resterà vuoto.")
 
 # Tutte le nazioni presenti nei dati, incluse automaticamente (nessun selettore)
 nazioni_scelte = rb.nazioni_disponibili(current_data, old_data, data_2anni)
@@ -99,9 +100,9 @@ if mostra_3_anno:
 # e i pulsanti di download.
 unificata = rb.nazioni_unified_report(periodi_report, nazioni_scelte)
 if unificata.empty:
-        st.caption("Nessun dato disponibile per il report unificato.")
-        st.stop()
-    
+    st.caption("Nessun dato disponibile per il report unificato.")
+    st.stop()
+
 if not st.checkbox("Mostra la tabella unificata", value=False):
     st.caption("Tabella nascosta: spunta il checkbox per calcolare e mostrare il report (con i pulsanti CSV e MD).")
 else:
