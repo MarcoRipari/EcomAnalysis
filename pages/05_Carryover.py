@@ -11,7 +11,7 @@ pipe = guard_pipeline()
 y_curr, y_old = period_labels(2)
 
 if pipe.old_data.empty:
-    st.warning("Nessun dato nel periodo di confronto: attiva **Confronta con un altro periodo (Y2Y)** in **⬆️ Carica Dati** con un range coperto dal DB, poi rigenera.")
+    st.warning("L'anno−1 non è coperto dal DB: non ci sono dati da confrontare. Scegli un periodo il cui anno precedente sia coperto in **⬆️ Carica Dati** e rigenera.")
     st.stop()
 
 carry = agg.filter_carryover_data(pipe.current_data, pipe.old_data)
@@ -45,8 +45,7 @@ with tab_albero:
                          "% Tot Curr": percent_col(f"% Tot {y_curr}"), "% Tot Old": percent_col(f"% Tot {y_old}"),
                          "% Reso Curr": percent_col(f"% Reso {y_curr}"), "% Reso Old": percent_col(f"% Reso {y_old}"),
                          "VAR% FATT": percent_col(), "VAR% PAIA": percent_col(),
-                         "Paia Net Curr": number_col(f"Paia Net {y_curr}"),
-                         "Paia Net Old": number_col(f"Paia Net {y_old}"),
+                         "Paia Net Curr": number_col(f"Paia Net {y_curr}"), "Paia Net Old": number_col(f"Paia Net {y_old}"),
                      })
 
     render_tree("Carryover Brand / Collezione", ["clzMappata", "clzOriginale"], ["Brand", "Collezione Originale"])
