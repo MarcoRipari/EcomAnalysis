@@ -31,11 +31,16 @@ def image_col(label: str = "Foto"):
 
 
 def period_labels(n: int = 2) -> list[str]:
-    """Etichette dei periodi in comparazione, legate allo SLOT (corrente/precedente/...) e non
-    all'anno solare corrente — prima usavano datetime.date.today().year, disallineate dal
-    range di date effettivamente selezionato in home."""
+    """Etichette-ANNO dei periodi in confronto: anno del periodo scelto (data FINALE)
+    e i relativi -1 e -2. Es. scelto 01/01/2026 → 30/06/2026 ⇒ ["2026", "2025", "2024"].
+    Fallback (nessun report ancora generato): le vecchie etichette di slot."""
+    sel = st.session_state.get("sel_periodo_a")
+    if isinstance(sel, (tuple, list)) and len(sel) == 2 and hasattr(sel[1], "year"):
+        y = sel[1].year                       # anno della data finale del periodo scelto
+        anni = [str(y), str(y - 1), str(y - 2)]
+        return anni[:n] + [f"Periodo {i + 1}" for i in range(3, n)]
     labels = ["Range selezionato", "Anno precedente", "Due anni precedenti"]
-    return labels[:n] + [f"Periodo {i+1}" for i in range(len(labels), n)]
+    return labels[:n] + [f"Periodo {i + 1}" for i in range(len(labels), n)]
 
 
 def shift_year(d, years: int):
