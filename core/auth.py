@@ -162,8 +162,9 @@ def _completa_sessione(sess: dict) -> dict:
 
 
 # ------------------------------------------------------------------ API Supabase Auth
+# Endpoint MFA di GoTrue (verificati): /auth/v1/factors — NON /auth/v1/mfa/...
 def list_factors(access_token: str) -> list[dict]:
-    return _call("GET", "mfa/factor/list", access_token=access_token)
+    return _call("GET", "factors", access_token=access_token)
 
 
 def sign_in_with_password(email: str, password: str) -> dict:
@@ -173,14 +174,14 @@ def sign_in_with_password(email: str, password: str) -> dict:
 
 
 def challenge_factor(access_token: str, factor_id: str) -> str:
-    ch = _call("POST", "mfa/challenge", json_body={"factor_id": factor_id},
+    ch = _call("POST", f"factors/{factor_id}/challenge",
                access_token=access_token)
     return ch["id"]
 
 
-def verify_challenge(access_token: str, challenge_id: str, code: str) -> dict:
+def verify_challenge(access_token: str, factor_id: str, challenge_id: str, code: str) -> dict:
     """Verifica il codice TOTP; ritorna la NUOVA sessione a livello aal2."""
-    data = _call("POST", "mfa/verify",
+    data = _call("POST", f"factors/{factor_id}/verify",
                  json_body={"challenge_id": challenge_id, "code": code},
                  access_token=access_token)
     return _completa_sessione(_session_from(data))
@@ -192,18 +193,19 @@ def verify_totp(session: dict, code: str) -> dict:
                if f.get("status") == "verified"]
     if not fattori:
         raise AuthError("Nessun fattore TOTP verificato su questo account.")
-    ch_id = challenge_factor(session["access_token"], fattori[0]["id"])
-    return verify_challenge(session["access_token"], ch_id, code)
+    fid = fattori[0]["id"]
+    ch_id = challenge_factor(session["access_token"], fid)
+    return verify_challenge(session["access_token"], fid, ch_id, code)
 
 
 def confirm_enroll(session: dict, factor_id: str, code: str) -> dict:
     """Conferma un enroll appena generato (fattore ancora non verificato)."""
     ch_id = challenge_factor(session["access_token"], factor_id)
-    return verify_challenge(session["access_token"], ch_id, code)
+    return verify_challenge(session["access_token"], factor_id, ch_id, code)
 
 
 def enroll_totp(access_token: str, friendly_name: str = "App TOTP") -> dict:
-    data = _call("POST", "mfa/enroll",
+    data = _call("POST", "factors",
                  json_body={"factor_type": "totp", "friendly_name": friendly_name},
                  access_token=access_token)
     totp = data.get("totp") or {}
@@ -212,8 +214,7 @@ def enroll_totp(access_token: str, friendly_name: str = "App TOTP") -> dict:
 
 
 def unenroll_factor(access_token: str, factor_id: str) -> None:
-    _call("POST", "mfa/unenroll", json_body={"factor_id": factor_id},
-          access_token=access_token)
+    _call("DELETE", f"factors/{factor_id}", access_token=access_token)
 
 
 def refresh_session(refresh_token: str) -> dict:
