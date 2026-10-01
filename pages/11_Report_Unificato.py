@@ -99,29 +99,29 @@ if mostra_3_anno:
 if not st.checkbox("Mostra la tabella unificata", value=False):
     st.caption("Tabella nascosta: spunta il checkbox per calcolare e mostrare il report (con i pulsanti CSV e MD).")
     st.stop()
-
-unificata = rb.nazioni_unified_report(periodi_report, nazioni_scelte)
-if unificata.empty:
-    st.caption("Nessun dato disponibile per il report unificato.")
-    st.stop()
-
-cfg_unificata = {
-    "Fatturato Netto": currency_col(),
-    "Share %": percent_col(),
-    "Scontrino Medio": currency_col(),
-    "Ordini": number_col(),
-    "Paia spedite": number_col(),
-    "Paia rese": number_col(),
-    "Paia nette": number_col(),
-    "Reso %": percent_col(),
-    "Reso % (valore)": percent_col(),
-    "Var % Fatturato YoY": percent_col(),
-    "Var % Ordini YoY": percent_col(),
-    "Margine Lordo": currency_col(),
-    "Margine %": percent_col(),
-}
-cfg_unificata = {k: v for k, v in cfg_unificata.items() if k in unificata.columns}
-st.dataframe(unificata, hide_index=True, use_container_width=True, column_config=cfg_unificata)
+else:
+    unificata = rb.nazioni_unified_report(periodi_report, nazioni_scelte)
+    if unificata.empty:
+        st.caption("Nessun dato disponibile per il report unificato.")
+        st.stop()
+    
+    cfg_unificata = {
+        "Fatturato Netto": currency_col(),
+        "Share %": percent_col(),
+        "Scontrino Medio": currency_col(),
+        "Ordini": number_col(),
+        "Paia spedite": number_col(),
+        "Paia rese": number_col(),
+        "Paia nette": number_col(),
+        "Reso %": percent_col(),
+        "Reso % (valore)": percent_col(),
+        "Var % Fatturato YoY": percent_col(),
+        "Var % Ordini YoY": percent_col(),
+        "Margine Lordo": currency_col(),
+        "Margine %": percent_col(),
+    }
+    cfg_unificata = {k: v for k, v in cfg_unificata.items() if k in unificata.columns}
+    st.dataframe(unificata, hide_index=True, use_container_width=True, column_config=cfg_unificata)
 
 col_csv, col_md = st.columns(2)
 with col_csv:
