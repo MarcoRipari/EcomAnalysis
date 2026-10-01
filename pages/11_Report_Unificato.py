@@ -53,13 +53,8 @@ def _df_to_md(df: pd.DataFrame) -> str:
 
 pipe = guard_pipeline()
 
-y_curr, y_old, y_2anni = period_labels(3)
+y_curr, y_old = period_labels(2)
 ha_confronto = not pipe.old_data.empty
-st.caption(
-    f"**{y_curr}**: {st.session_state.get('periodo_a_label', '—')}"
-    + (f" · **{y_old}**: {st.session_state.get('periodo_b_label', '—')}" if ha_confronto else "")
-    + (f" · **{y_2anni}**: {st.session_state.get('periodo_c_label', '—')}" if ha_confronto else "")
-)
 
 current_data = pipe.current_data
 old_data = pipe.old_data
@@ -76,7 +71,13 @@ y_2anni = period_labels(3)[2]
 if not data_2anni.empty:
     mostra_3_anno = True
 
-st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
+#st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
+st.caption(
+    f"**{y_curr}**: {st.session_state.get('periodo_a_label', '—')}"
+    + (f" · **{y_old}**: {st.session_state.get('periodo_b_label', '—')}" if ha_confronto else "")
+    + (f" · **{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}" if ha_confronto else "")
+)
+
 if data_2anni.empty:
     st.caption("Nessun dato nel DB per 'due anni precedenti': il confronto a 3 vie resterà vuoto.")
 
