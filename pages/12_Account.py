@@ -1,5 +1,3 @@
-import time
-
 import streamlit as st
 
 from core import auth
@@ -36,7 +34,8 @@ if not fattori:
     )
 else:
     st.table([
-        {"Nome": f.get("friendly_name"), "Creato il": f.get("created_at", "—"),
+        {"Nome": f.get("friendly_name"),
+         "Creato il": auth.fmt_data(f.get("created_at", "")),
          "ID": f.get("id")}
         for f in fattori
     ])
@@ -47,15 +46,16 @@ st.divider()
 st.subheader("Sostituisci il fattore (es. cambio telefono)")
 st.caption(
     "Un solo fattore TOTP è più che sufficiente: il secret funziona su qualsiasi "
-    "dispositivo/app. Qui lo rigeneri per il telefono nuovo — **il fattore attuale "
-    "viene rimosso solo dopo che quello nuovo è verificato**, così non resti mai "
-    "senza 2FA."
+    "dispositivo/app. Qui lo rigeneri per il telefono nuovo. **Premendo “Genera” il "
+    "fattore attuale viene rimosso subito** (GoTrue non permette due fattori con lo "
+    "stesso nome): conferma poi il codice della NUOVA app, altrimenti al prossimo "
+    "accesso l'app ti chiederà di riattivare la 2FA."
 )
 
 if st.button("1️⃣ Genera nuovo QR code e secret"):
     try:
-        nome = f"App TOTP {time.strftime('%d/%m/%Y %H:%M:%S')}"
-        st.session_state["_sostituisci"] = auth.enroll_totp(sess["access_token"], nome)
+        auth.pulisci_fattori(sess["access_token"])   # rimuove il fattore attuale (stesso nome)
+        st.session_state["_sostituisci"] = auth.enroll_totp(sess["access_token"], "Accesso 2FA")
     except auth.AuthError as e:
         st.error(str(e))
 
@@ -79,13 +79,6 @@ if nuovo:
         except auth.AuthError as e:
             st.error(str(e))
         else:
-            # rimuovi i vecchi fattori TOTP verificati: resta attivo solo quello nuovo
-            for f in fattori:
-                if f.get("id") != nuovo["id"]:
-                    try:
-                        auth.unenroll_factor(sess["access_token"], f["id"])
-                    except auth.AuthError:
-                        pass
             st.session_state.pop("_sostituisci", None)
             auth.remember_session(full)   # sessione aal2 nuova — niente st.rerun dopo
             st.success("✅ Fattore sostituito: dal telefono vecchio non si generano "
