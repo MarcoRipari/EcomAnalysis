@@ -674,6 +674,9 @@ def _rispondi_report(sezioni: list[tuple[str, pd.DataFrame]], fmt: str, parametr
 def report(
     tipo: str = Query(..., description="Report da estrarre",
                       pattern="^(" + "|".join(_TIPI_REPORT) + ")$"),
+    # NB: da/a con Query(...) restano OBBLIGATORI (per FastAPI "..." = required),
+    # ma danno a Python un default formale: senza, "parameter without a default
+    # follows parameter with a default" perché tipo=... viene prima.
     da: date = Query(..., description="Inizio periodo scelto, YYYY-MM-DD"),
     a: date = Query(..., description="Fine periodo scelto, YYYY-MM-DD"),
     confronti: int = Query(0, ge=0, le=2,
