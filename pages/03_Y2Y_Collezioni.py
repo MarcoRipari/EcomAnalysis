@@ -11,7 +11,7 @@ pipe = guard_pipeline()
 y_curr, y_old = period_labels(2)
 
 if pipe.old_data.empty:
-    st.warning("Nessun dato nel periodo di confronto: attiva **Confronta con un altro periodo (Y2Y)** in **⬆️ Carica Dati** con un range coperto dal DB, poi rigenera.")
+    st.warning("L'anno−1 non è coperto dal DB: non ci sono dati da confrontare. Scegli un periodo il cui anno precedente sia coperto in **⬆️ Carica Dati** e rigenera.")
     st.stop()
 
 current_data, old_data = pipe.current_data, pipe.old_data
