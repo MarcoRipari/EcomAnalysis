@@ -351,7 +351,7 @@ def qr_component(qr_code: str) -> None:
             height=240,
         )
     else:   # fallback: data-URI o URL di un'immagine
-        _iframe_html(f'<img src="{qr}" width="220" alt="QR TOTP"/>', height=240)
+        _iframe_html(f'{qr}', height=240)
 
 
 def _login_flow() -> None:
