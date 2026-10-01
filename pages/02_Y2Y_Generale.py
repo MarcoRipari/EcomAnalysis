@@ -29,10 +29,7 @@ resi_standalone_old = pipe.esito_resi_old["standalone"]
 # automaticamente spostando di un altro anno il periodo scelto in home — non richiede una
 # terza selezione di date, per non appesantire la home per gli altri report che restano a 2.
 periodo_a = st.session_state.get("sel_periodo_a")
-mostra_3_vie = False
-if periodo_a and isinstance(periodo_a, tuple) and len(periodo_a) == 2:
-    mostra_3_vie = st.checkbox("Aggiungi confronto con 'Due anni precedenti' (calcolato automaticamente)",
-                                value=False)
+mostra_3_vie = bool(periodo_a and st.session_state.get("sel_confronta_2anni", False))
 
 y_2anni = None
 data_2anni, standalone_2anni = current_data.iloc[0:0], resi_standalone_current.iloc[0:0]
