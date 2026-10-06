@@ -345,7 +345,13 @@ def monthly_season_report(da, a,
     # ---- tabella mese per mese --------------------------------------------------------
     righe = []
     for idx, (y, m) in enumerate(mesi):
-        riga: dict = {"Mese": f"{CFG.MESI_IT[m - 1]} {y}", "Stagione": _stagione_label(y, m)}
+        # Etichetta del mese: SOLO il nome ("Settembre"), senza anno: il confronto e'
+        # posizionale (stesso mese del periodo scelto, -1 anno, -2 anni) quindi l'anno
+        # e' implicito e la finestra puo' attraversare il cambio d'anno (lug -> apr).
+        # Guardia: se la finestra supera i 12 mesi (estremi inclusi) il nome del mese si
+        # ripeterebbe sull'asse del grafico: in quel caso si tiene "Mese YYYY".
+        etichetta = CFG.MESI_IT[m - 1] if len(mesi) <= 12 else f"{CFG.MESI_IT[m - 1]} {y}"
+        riga: dict = {"Mese": etichetta, "Stagione": _stagione_label(y, m)}
         cur = stats[0].get((y, m))
         riga[f"Fatturato Netto {labels[0]}"] = cur["fatturato"]
         riga[f"Ordini {labels[0]}"] = cur["ordini"]
