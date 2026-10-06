@@ -1,5 +1,5 @@
 """
-Report builders â porting della LOGICA (non della UI a fogli/celle) dei moduli in
+Report builders — porting della LOGICA (non della UI a fogli/celle) dei moduli in
 reports.gs e tables.gs. Ogni funzione ritorna strutture dati semplici (dict / DataFrame)
 pronte per essere renderizzate da una pagina Streamlit con st.dataframe / st.metric /
 st.plotly_chart, al posto delle chiamate SpreadsheetApp dell'originale.
@@ -28,13 +28,13 @@ def img_url(sku13: str) -> str:
 
 
 # --------------------------------------------------------------------------------------
-# Blocco KPI generico â porting di drawKPIBlockGeneric
+# Blocco KPI generico — porting di drawKPIBlockGeneric
 # --------------------------------------------------------------------------------------
 
 def kpi_block(kc: dict, ko: dict, y_curr: int, y_old: int) -> pd.DataFrame | None:
     """Tabella KPI con METRICHE DI TIPO DIVERSO sulle righe (valuta/conteggio/percentuale) e i
-    periodi sulle colonne: i valori sono giÃ  formattati come stringa (stile italiano), perchÃ©
-    il column_config di Streamlit si applica per colonna e non puÃ² gestire tipi diversi riga
+    periodi sulle colonne: i valori sono già formattati come stringa (stile italiano), perché
+    il column_config di Streamlit si applica per colonna e non può gestire tipi diversi riga
     per riga nella stessa colonna."""
     if kc["ordini"] == 0 and ko["ordini"] == 0:
         return None
@@ -50,7 +50,7 @@ def kpi_block(kc: dict, ko: dict, y_curr: int, y_old: int) -> pd.DataFrame | Non
 
 
 # --------------------------------------------------------------------------------------
-# Tabella comparativa Y2Y â porting di drawComparativeTable
+# Tabella comparativa Y2Y — porting di drawComparativeTable
 # --------------------------------------------------------------------------------------
 
 def comparative_table(agg_current: dict, agg_old: dict, y_curr: int, y_old: int,
@@ -90,7 +90,7 @@ def single_year_table(aggregator: dict, y_curr: int, sort_type: str = "fatturato
 
 
 # --------------------------------------------------------------------------------------
-# Top articoli â porting di drawTopArticoliY2Y (con confronto Y2Y) e della sezione
+# Top articoli — porting di drawTopArticoliY2Y (con confronto Y2Y) e della sezione
 # "TOP ARTICOLI" della Dashboard (solo anno corrente, livello SKU13)
 # --------------------------------------------------------------------------------------
 
@@ -148,7 +148,7 @@ def top_articoli_dashboard(current_data: pd.DataFrame, anagrafica: dict, top_n: 
         desc = anagrafica.get(sku, {}).get("desc") or anagrafica.get(sku[:7], {}).get("desc", "-")
         p_reso = item["paiaRese"] / item["paiaSpedite"] if item["paiaSpedite"] > 0 else 0.0
         rows.append({
-            "Foto": img_url(item["img"]), "Articolo": f"{sku.upper()} â {desc}",
+            "Foto": img_url(item["img"]), "Articolo": f"{sku.upper()} — {desc}",
             "Collezione": item["clzOriginale"], "Paia Spedite": item["paiaSpedite"],
             "Paia Rese": item["paiaRese"], "% Reso": p_reso, "Paia Nette": item["paiaNette"],
             "Fatturato Netto": item["fatturatoNetto"],
@@ -160,7 +160,7 @@ def top_articoli_dashboard(current_data: pd.DataFrame, anagrafica: dict, top_n: 
 
 
 # --------------------------------------------------------------------------------------
-# Andamento mensile â porting di drawMonthlyTrendModule
+# Andamento mensile — porting di drawMonthlyTrendModule
 # --------------------------------------------------------------------------------------
 
 def monthly_trend(current_data: pd.DataFrame, old_data: pd.DataFrame,
@@ -221,19 +221,19 @@ def monthly_trend(current_data: pd.DataFrame, old_data: pd.DataFrame,
 
 
 # --------------------------------------------------------------------------------------
-# Report mensile dinamico con stagioni SS/FW â "Andamento Mese per Mese".
-# A differenza di monthly_trend (gennaioâdicembre fisso), qui i mesi partono dal mese
-# di inizio del periodo scelto e arrivano al mese finale (es. periodo 2025-11-01 â
-# 2026-11-01 = Novembre 2025 â¦ Novembre 2026), attraversando l'anno di confine.
-# La stagione Ã¨ puramente DATA-BASED (nessun attributo di prodotto):
-#   SS = Spring/Summer = 01 marzo â 31 agosto
-#   FW = Fall/Winter   = 01 settembre â 28-29 febbraio
+# Report mensile dinamico con stagioni SS/FW — "Andamento Mese per Mese".
+# A differenza di monthly_trend (gennaio→dicembre fisso), qui i mesi partono dal mese
+# di inizio del periodo scelto e arrivano al mese finale (es. periodo 2025-11-01 →
+# 2026-11-01 = Novembre 2025 … Novembre 2026), attraversando l'anno di confine.
+# La stagione è puramente DATA-BASED (nessun attributo di prodotto):
+#   SS = Spring/Summer = 01 marzo → 31 agosto
+#   FW = Fall/Winter   = 01 settembre → 28-29 febbraio
 # L'etichetta di una stagione FW usa gli anni che attraversa: settembre 2025 e
 # gennaio 2026 appartengono entrambi a "FW 25/26".
 # --------------------------------------------------------------------------------------
 
-SS_MESI = frozenset({3, 4, 5, 6, 7, 8})      # marzo â agosto
-FW_MESI = frozenset({9, 10, 11, 12, 1, 2})   # settembre â febbraio
+SS_MESI = frozenset({3, 4, 5, 6, 7, 8})      # marzo → agosto
+FW_MESI = frozenset({9, 10, 11, 12, 1, 2})   # settembre → febbraio
 
 
 def _stagione_label(anno: int, mese: int) -> str:
@@ -246,7 +246,7 @@ def _stagione_label(anno: int, mese: int) -> str:
 
 def _mesi_periodo(da, a) -> list[tuple[int, int]]:
     """Tutti i (anno, mese) del periodo [da, a] al mese (estremi inclusi), anche
-    attraverso il cambio d'anno: 2025-11-01 â 2026-11-01 = 13 mesi da (2025, 11) a (2026, 11)."""
+    attraverso il cambio d'anno: 2025-11-01 → 2026-11-01 = 13 mesi da (2025, 11) a (2026, 11)."""
     mesi: list[tuple[int, int]] = []
     y, m = da.year, da.month
     while (y, m) <= (a.year, a.month):
@@ -259,7 +259,7 @@ def _mesi_periodo(da, a) -> list[tuple[int, int]]:
 
 def _stats_mensili(venduto: pd.DataFrame, standalone: pd.DataFrame | None,
                    mesi: list[tuple[int, int]]) -> dict[tuple[int, int], dict]:
-    """(anno, mese) â metriche del mese. Stessa semantica di monthly_trend: il fatturato
+    """(anno, mese) → metriche del mese. Stessa semantica di monthly_trend: il fatturato
     netto reale include i rimborsi standalone attribuiti al mese di dataReso (fallback
     dataVendita); gli ordini sono i ordineId distinti non vuoti delle sole vendite."""
     stats = {ym: {"fatturato": 0.0, "ordini": 0, "paiaSpedite": 0.0, "paiaRese": 0.0,
@@ -303,7 +303,7 @@ def _agg_stagioni(stats: dict[tuple[int, int], dict]) -> dict[str, dict]:
     """Somma le statistiche mensili per stagione (etichetta 'SS 2026' / 'FW 25/26'),
     mantenendo l'ordine cronologico di prima comparsa. NB: gli ordini di stagione sono
     la somma degli ordini distinti mese per mese (un ordine a cavallo di due mesi verrebbe
-    contato due volte, ai fini del trend Ã¨ trascurabile e coerente tra i periodi)."""
+    contato due volte, ai fini del trend è trascurabile e coerente tra i periodi)."""
     stagioni: dict[str, dict] = {}
     for (y, m), st in stats.items():
         lab = _stagione_label(y, m)
@@ -322,22 +322,22 @@ def monthly_season_report(da, a,
                            ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Report "Mese per Mese" con stagioni SS/FW, a finestra mobile sul periodo scelto.
 
-    `periodi` = [(etichetta, venduto, rimborsi standalone), â¦]: la posizione i corrisponde
-    al periodo scelto spostato di âi anni (0 = periodo scelto, 1 = annoâ1, 2 = annoâ2),
+    `periodi` = [(etichetta, venduto, rimborsi standalone), …]: la posizione i corrisponde
+    al periodo scelto spostato di −i anni (0 = periodo scelto, 1 = anno−1, 2 = anno−2),
     quindi ogni riga-mese confronta lo stesso mese degli anni precedenti (con confronti=0
     la tabella mostra solo il periodo scelto, senza colonne di variazione).
 
     Ritorna (df_mesi, df_stagioni):
-      df_mesi   â una riga per ogni mese da month(da) a month(a), con: Fatturato Netto,
+      df_mesi   — una riga per ogni mese da month(da) a month(a), con: Fatturato Netto,
                   Ordini, Paia Nette e % Reso del periodo corrente; per ogni anno di
                   confronto: Fatturato Netto e VAR% di fatturato/ordini/paia;
-      df_stagioni â una riga per stagione (SS/FW) toccata dal periodo, con le stesse
+      df_stagioni — una riga per stagione (SS/FW) toccata dal periodo, con le stesse
                   metriche e la colonna "Mesi nel periodo" (mesi presenti su 6).
     """
     mesi = _mesi_periodo(da, a)
     labels = [p[0] for p in periodi]
 
-    # statistiche mensili per ogni periodo (mesi spostati di âposizione anni)
+    # statistiche mensili per ogni periodo (mesi spostati di −posizione anni)
     stats = []
     for i, (_lbl, v, s) in enumerate(periodi):
         stats.append(_stats_mensili(v, s, [(y - i, m) for (y, m) in mesi]))
@@ -362,7 +362,7 @@ def monthly_season_report(da, a,
 
     # ---- tabella stagioni SS / FW -----------------------------------------------------
     # NB: il confronto stagioni accoppia per POSIZIONE, non per etichetta: nel periodo
-    # corrente la stagione si chiama "FW 25/26", nel periodoâ1 anno "FW 24/25" â sono
+    # corrente la stagione si chiama "FW 25/26", nel periodo−1 anno "FW 24/25" — sono
     # gli stessi mesi spostati di un anno, quindi la k-esima stagione del periodo
     # corrente confronta la k-esima del periodo di confronto.
     stag = [_agg_stagioni(st) for st in stats]          # una per periodo
@@ -390,7 +390,7 @@ def monthly_season_report(da, a,
 
 
 # --------------------------------------------------------------------------------------
-# Comparativa Codici (SKU7) â porting di generateComparativaCodiciModulo
+# Comparativa Codici (SKU7) — porting di generateComparativaCodiciModulo
 # --------------------------------------------------------------------------------------
 
 def comparativa_codici(current_data: pd.DataFrame, old_data: pd.DataFrame, anagrafica: dict,
@@ -434,7 +434,7 @@ def comparativa_codici(current_data: pd.DataFrame, old_data: pd.DataFrame, anagr
 
 
 # --------------------------------------------------------------------------------------
-# Tabella gerarchica (Collezioni / Carryover) â porting di drawCustomHierarchicalTable
+# Tabella gerarchica (Collezioni / Carryover) — porting di drawCustomHierarchicalTable
 # --------------------------------------------------------------------------------------
 
 def flatten_hierarchical_table(current_tree: dict, old_tree: dict, level_names: list[str]) -> pd.DataFrame:
@@ -463,7 +463,7 @@ def flatten_hierarchical_table(current_tree: dict, old_tree: dict, level_names: 
             p_reso_o = o_node["paiaRese"] / o_node["paiaSpedite"] if o_node["paiaSpedite"] > 0 else 0.0
 
             indent = "\u2003\u2003" * depth
-            label = indent + ("ð " if depth == 0 else "ð·ï¸ ") + (key.upper() if depth == 0 else key)
+            label = indent + ("📁 " if depth == 0 else "🏷️ ") + (key.upper() if depth == 0 else key)
 
             rows.append({
                 "Voce": label, "Depth": depth,
@@ -481,7 +481,7 @@ def flatten_hierarchical_table(current_tree: dict, old_tree: dict, level_names: 
 
 
 # --------------------------------------------------------------------------------------
-# Analisi Resi (status per collezione) â porting di generateResiModulo
+# Analisi Resi (status per collezione) — porting di generateResiModulo
 # --------------------------------------------------------------------------------------
 
 def resi_status(current_data: pd.DataFrame) -> pd.DataFrame:
@@ -492,18 +492,18 @@ def resi_status(current_data: pd.DataFrame) -> pd.DataFrame:
         v, r, fatt = item["paiaSpedite"], item["paiaRese"], item["fatturatoNetto"]
         perc_reso = r / v if v > 0 else 0.0
         if perc_reso >= 1:
-            status = "ð´ CRITICO (100%)"
+            status = "🔴 CRITICO (100%)"
         elif perc_reso > 0.7:
-            status = "ð´ CRITICO"
+            status = "🔴 CRITICO"
         elif perc_reso > soglia + 0.1:
-            status = "ð  PESSIMO"
+            status = "🟠 PESSIMO"
         elif perc_reso > soglia:
-            status = "ð¡ MONITORARE"
+            status = "🟡 MONITORARE"
         elif perc_reso > soglia * 0.8:
-            status = "ðµ STABILE"
+            status = "🔵 STABILE"
         else:
-            status = "ð¢ OTTIMO"
-        rows.append(["ð " + clz, v, r, perc_reso, fatt, status])
+            status = "🟢 OTTIMO"
+        rows.append(["📁 " + clz, v, r, perc_reso, fatt, status])
     df = pd.DataFrame(rows, columns=["Brand/Collezione", "Paia Spedite", "Paia Rese", "% Reso",
                                       "Fatturato Netto", "Status"])
     if df.empty:
@@ -512,7 +512,7 @@ def resi_status(current_data: pd.DataFrame) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------------------
-# Taglie per Brand â porting di generateTaglieModulo (aggregateByTagliaPerBrand)
+# Taglie per Brand — porting di generateTaglieModulo (aggregateByTagliaPerBrand)
 # --------------------------------------------------------------------------------------
 
 def _sort_taglie(taglie: list[str]) -> list[str]:
@@ -546,7 +546,7 @@ def taglie_tables(current_data: pd.DataFrame) -> dict:
 
 
 # --------------------------------------------------------------------------------------
-# Comparativa Nazioni â nuova pagina "Nazioni"
+# Comparativa Nazioni — nuova pagina "Nazioni"
 # --------------------------------------------------------------------------------------
 
 def nazioni_disponibili(*dfs: pd.DataFrame) -> list[str]:
@@ -631,27 +631,27 @@ def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------------------
-# Report unificato Marketplace Ã Nazione Ã Brand â pagina "Nazioni" (confronto 3 anni)
+# Report unificato Marketplace × Nazione × Brand — pagina "Nazioni" (confronto 3 anni)
 # --------------------------------------------------------------------------------------
 
 # --- Margini & commissioni marketplace (predisposizione, ATTUALMENTE DISATTIVATA) --------
 # Struttura pronta per il calcolo del margine nel report unificato. Quando i dati delle
 # commissioni marketplace saranno disponibili: compilare COMMISSIONI_MKP con la quota di
 # commissione applicata al fatturato netto per marketplace (es. {"ZALANDO": 0.25}) e
-# impostare ABILITA_MARGINI = True: il report aggiungerÃ  le colonne "Margine Lordo" (â¬) e
-# "Margine %". Negli scope con marketplace GLOBAL la commissione Ã¨ la media pesata sul
+# impostare ABILITA_MARGINI = True: il report aggiungerà le colonne "Margine Lordo" (€) e
+# "Margine %". Negli scope con marketplace GLOBAL la commissione è la media pesata sul
 # fatturato dei marketplace sottostanti, quindi anche le righe GLOBAL restano coerenti.
-# FinchÃ© i dati non ci sono, le colonne non compaiono nel report.
+# Finché i dati non ci sono, le colonne non compaiono nel report.
 ABILITA_MARGINI = False
-COMMISSIONI_MKP: dict[str, float] = {}   # marketplace -> commissione sul netto (0â1)
+COMMISSIONI_MKP: dict[str, float] = {}   # marketplace -> commissione sul netto (0–1)
 COMMISSIONE_DEFAULT = 0.0                # marketplace assente dalla mappa
 
 
 def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scelte: list[str]) -> pd.DataFrame:
     """
-    Report unificato Marketplace Ã Nazione Ã Brand: per ogni periodo in `periodi` (lista di
-    coppie (etichetta, DataFrame venduto)) genera una riga per ogni combinazione marketplace Ã
-    nazione Ã brand presente nei dati (scope DETAIL) piÃ¹ tutte le aggregazioni in cui una o piÃ¹
+    Report unificato Marketplace × Nazione × Brand: per ogni periodo in `periodi` (lista di
+    coppie (etichetta, DataFrame venduto)) genera una riga per ogni combinazione marketplace ×
+    nazione × brand presente nei dati (scope DETAIL) più tutte le aggregazioni in cui una o più
     dimensioni sono "collassate" a GLOBAL, identificate dallo Scope:
 
     | Marketplace | Nazione | Brand  | Scope                |
@@ -666,18 +666,18 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
     | GLOBAL      | GLOBAL  | GLOBAL | GLOBAL              |
 
     Le nazioni di dettaglio sono limitate a `nazioni_scelte` (il valore "GLOBAL" del selettore
-    viene ignorato, perchÃ© lÃ¬ indica l'aggregato); le righe aggregate GLOBAL sono sempre
+    viene ignorato, perché lì indica l'aggregato); le righe aggregate GLOBAL sono sempre
     generate, indipendentemente dal selettore.
 
     KPI sui soli dati venduto (stessa semantica di nazioni_brand_share):
-      Fatturato Netto = somma nettoNetto Â· Ordini = ordineId distinti non vuoti
-      Scontrino Medio = lordoSpedito / Ordini Â· Reso % = paiaRese / paiaSpedite
-      Reso % (valore) = nettoReso / nettoSpedito â entrambi positivi per costruzione in
-      engine.py (nettoNetto = nettoSpedito - nettoReso): Ã¨ il peso del reso sul valore
-      spedito, complementare a Reso % che invece Ã¨ a paia.
+      Fatturato Netto = somma nettoNetto · Ordini = ordineId distinti non vuoti
+      Scontrino Medio = lordoSpedito / Ordini · Reso % = paiaRese / paiaSpedite
+      Reso % (valore) = nettoReso / nettoSpedito — entrambi positivi per costruzione in
+      engine.py (nettoNetto = nettoSpedito - nettoReso): è il peso del reso sul valore
+      spedito, complementare a Reso % che invece è a paia.
     Share % = Fatturato Netto della riga / Fatturato Netto GLOBAL dello stesso anno: peso
     della combinazione (marketplace, nazione, brand o aggregato) sul totale azienda del
-    periodo â la riga GLOBAL vale quindi 100%.
+    periodo — la riga GLOBAL vale quindi 100%.
     Var % Fatturato YoY / Var % Ordini YoY = confronto con la riga dello stesso scope e
     della stessa combinazione del periodo precedente (i periodi sono attesi in ordine
     [corrente, -1 anno, -2 anni], quindi il periodo i confronta con il periodo i+1). Se la
@@ -761,7 +761,7 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
                 "Paia rese": rese,
                 "Paia nette": float(k["nette"]),
                 "Reso %": (rese / spedite) if spedite > 0 else 0.0,
-                # nettoReso Ã¨ positivo (vedi engine.py): rapporto diretto sul netto spedito
+                # nettoReso è positivo (vedi engine.py): rapporto diretto sul netto spedito
                 "Reso % (valore)": (float(k["fReso"]) / f_sped) if f_sped > 0 else 0.0,
                 "Scope": scope,
             }
@@ -774,49 +774,49 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
         def _share(num: float, den: float) -> float:
             return num / den if den > 0 else 0.0
 
-        # DETAIL â singola combinazione marketplace Ã nazione Ã brand
+        # DETAIL — singola combinazione marketplace × nazione × brand
         for (m, c, b), k in g_det.iterrows():
             if c in nazioni_specifiche:
                 _row("DETAIL", m, c, b, k, _share(k["fatt"], tot["fatt"]))
 
-        # MARKETPLACE_COUNTRY â tutti i brand di (marketplace, nazione)
+        # MARKETPLACE_COUNTRY — tutti i brand di (marketplace, nazione)
         for (m, c), k in g_mc.iterrows():
             if c in nazioni_specifiche:
                 _row("MARKETPLACE_COUNTRY", m, c, "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
 
-        # MARKETPLACE_BRAND â brand su tutti i Paesi del marketplace
+        # MARKETPLACE_BRAND — brand su tutti i Paesi del marketplace
         for (m, b), k in g_mb.iterrows():
             _row("MARKETPLACE_BRAND", m, "GLOBAL", b, k, _share(k["fatt"], tot["fatt"]))
 
-        # COUNTRY_BRAND â brand in nazione su tutti i marketplace
+        # COUNTRY_BRAND — brand in nazione su tutti i marketplace
         for (c, b), k in g_cb.iterrows():
             if c in nazioni_specifiche:
                 _row("COUNTRY_BRAND", "GLOBAL", c, b, k, _share(k["fatt"], tot["fatt"]))
 
-        # GLOBAL_MARKETPLACE â tutto il marketplace
+        # GLOBAL_MARKETPLACE — tutto il marketplace
         for m, k in g_m.iterrows():
             _row("GLOBAL_MARKETPLACE", m, "GLOBAL", "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
 
-        # GLOBAL_COUNTRY â tutto il business della nazione
+        # GLOBAL_COUNTRY — tutto il business della nazione
         for c, k in g_c.iterrows():
             if c in nazioni_specifiche:
                 _row("GLOBAL_COUNTRY", "GLOBAL", c, "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
 
-        # GLOBAL_BRAND â brand totale
+        # GLOBAL_BRAND — brand totale
         for b, k in g_gb.iterrows():
             _row("GLOBAL_BRAND", "GLOBAL", "GLOBAL", b, k, _share(k["fatt"], tot["fatt"]))
 
-        # GLOBAL â totale azienda
+        # GLOBAL — totale azienda
         _row("GLOBAL", "GLOBAL", "GLOBAL", "GLOBAL", tot, _share(tot["fatt"], tot["fatt"]))
 
     if not rows:
         return pd.DataFrame(columns=cols)
 
-    # Var % anno su anno â ciascun periodo confronta con il precedente (i periodi sono in
+    # Var % anno su anno — ciascun periodo confronta con il precedente (i periodi sono in
     # ordine [corrente, -1 anno, -2 anni]: il periodo i confronta con il periodo i+1), sulla
     # riga dello stesso scope e della stessa combinazione. Se l'anno prima la combinazione
     # non esisteva la Var % resta vuota (NaN): la convenzione var_pct (+100% da zero) vale
-    # solo quando la riga dell'anno prima esiste ed Ã¨ a zero.
+    # solo quando la riga dell'anno prima esiste ed è a zero.
     labels = [lab for lab, _ in periodi]
     pos = {lab: i for i, lab in enumerate(labels)}
     by_key: dict[tuple, dict[str, tuple]] = {}
@@ -846,7 +846,7 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
 
 
 # --------------------------------------------------------------------------------------
-# Log riconciliazione â porting di generateLogRiconciliazioneModulo
+# Log riconciliazione — porting di generateLogRiconciliazioneModulo
 # --------------------------------------------------------------------------------------
 
 def log_df(rows: list[dict], cols_map: dict) -> pd.DataFrame:
