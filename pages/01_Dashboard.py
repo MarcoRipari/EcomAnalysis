@@ -3,10 +3,11 @@ import streamlit as st
 from core import metrics as met
 from core import aggregations as agg
 from core import report_builders as rb
+from core.design_system import page_setup, section, metric_cards, data_table, chart, it_num
 from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col, image_col, period_labels
 
-st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
-st.title("📊 Dashboard — Dettaglio Fatturato Anno Corrente")
+page_setup("Dashboard", "📊",
+           "Dettaglio fatturato — anno corrente · perimetro e periodo scelti in Carica Dati")
 
 pipe = guard_pipeline()
 y_curr, _ = period_labels(1)[0], None
@@ -23,12 +24,13 @@ if perimetro in ("2", "3"):
     label = "DIRETTI" if perimetro == "2" else "ESTERNI"
     fatt_reale = m[canale]["netto"] + m_resi_extra[canale]["netto"]
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric(f"Fatturato Netto Reale ({label})", f"€ {fatt_reale:,.2f}")
-    c2.metric("Ordini", f"{m[canale]['ordini']:,}")
-    c3.metric("Paia Nette", f"{m[canale]['paiaNet']:,.0f}")
+    metric_cards([
+        {"label": f"Fatturato netto reale ({label})", "value": f"{it_num(fatt_reale, 2)} €"},
+        {"label": "Ordini", "value": it_num(m[canale]["ordini"])},
+        {"label": "Paia nette", "value": it_num(m[canale]["paiaNet"])},
+    ])
 
-    st.subheader("Dettaglio fatturato")
+    section("Dettaglio fatturato")
     st.table({
         "Metrica": ["Fatturato Lordo", "Fatturato Netto — pre riconciliazione",
                     "Fatturato Netto — dopo riconciliazione RESI", "Rimborsi extra non abbinati",
@@ -42,12 +44,13 @@ else:
     fatt_reale_dir = m["dir"]["netto"] + m_resi_extra["dir"]["netto"]
     fatt_reale_est = m["est"]["netto"] + m_resi_extra["est"]["netto"]
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Fatturato Netto Reale — Totale", f"€ {fatt_reale_tot:,.2f}")
-    c2.metric("— Diretti", f"€ {fatt_reale_dir:,.2f}")
-    c3.metric("— Esterni", f"€ {fatt_reale_est:,.2f}")
+    metric_cards([
+        {"label": "Fatturato netto reale — totale", "value": f"{it_num(fatt_reale_tot, 2)} €"},
+        {"label": "— Diretti", "value": f"{it_num(fatt_reale_dir, 2)} €"},
+        {"label": "— Esterni", "value": f"{it_num(fatt_reale_est, 2)} €"},
+    ])
 
-    st.subheader("Dettaglio fatturato")
+    section("Dettaglio fatturato")
     st.table({
         "Metrica": ["Fatturato Lordo", "Fatturato Netto — pre riconciliazione",
                     "Fatturato Netto — dopo riconciliazione RESI", "Rimborsi extra non abbinati",
@@ -60,38 +63,33 @@ else:
                     fatt_reale_est, m["est"]["ordini"], m["est"]["paiaSped"], m["est"]["paiaRes"], m["est"]["paiaNet"]],
     })
 
-st.caption(
+st.markdown(
     f"Resi riconciliati (Spedito→Reso): **{len(esito['convertiti'])}** · "
     f"Duplicati scartati: **{len(esito['duplicati'])}** · "
     f"Rimborsi extra: **{len(esito['standalone'])}** · "
     f"Fuori periodo: **{len(esito['fuoriPeriodo'])}**"
 )
 
-st.divider()
-st.subheader("📦 Dettaglio Marketplace")
-st.dataframe(rb.single_year_table(agg.aggregate_by_key(current_data, "mkp"), y_curr, "fatturatoNetto"),
-             hide_index=True, use_container_width=True,
-             column_config={"% Reso": percent_col(), f"Fatturato Netto {y_curr}": currency_col(),
-                             "Scontrino Medio": currency_col()})
+section("Marketplace")
+data_table(rb.single_year_table(agg.aggregate_by_key(current_data, "mkp"), y_curr, "fatturatoNetto"),
+           {"% Reso": percent_col(), f"Fatturato Netto {y_curr}": currency_col(),
+            "Scontrino Medio": currency_col()})
 
-st.subheader("🌍 Dettaglio Nazioni")
-st.dataframe(rb.single_year_table(agg.aggregate_by_key(current_data, "nazione"), y_curr, "fatturatoNetto"),
-             hide_index=True, use_container_width=True,
-             column_config={"% Reso": percent_col(), f"Fatturato Netto {y_curr}": currency_col(),
-                             "Scontrino Medio": currency_col()})
+section("Nazioni")
+data_table(rb.single_year_table(agg.aggregate_by_key(current_data, "nazione"), y_curr, "fatturatoNetto"),
+           {"% Reso": percent_col(), f"Fatturato Netto {y_curr}": currency_col(),
+            "Scontrino Medio": currency_col()})
 
-st.subheader("📈 Dettaglio Collezioni")
-st.dataframe(rb.single_year_table(agg.aggregate_by_key(current_data, "clzMappata"), y_curr, "paiaNette"),
-             hide_index=True, use_container_width=True,
-             column_config={"% Reso": percent_col(), f"Fatturato Netto {y_curr}": currency_col(),
-                             "Scontrino Medio": currency_col()})
+section("Collezioni")
+data_table(rb.single_year_table(agg.aggregate_by_key(current_data, "clzMappata"), y_curr, "paiaNette"),
+           {"% Reso": percent_col(), f"Fatturato Netto {y_curr}": currency_col(),
+            "Scontrino Medio": currency_col()})
 
-st.divider()
-st.subheader("🏆 Top Articoli — Anno Corrente")
+section("Top articoli — anno corrente",
+       caption="Classifica per fatturato netto reale, con foto articolo e resi.")
 top_n = st.slider("Numero di articoli da mostrare", 10, 500, 50, step=10)
 top_df = rb.top_articoli_dashboard(current_data, pipe.anagrafica, top_n=5000)
-st.dataframe(top_df.head(top_n), hide_index=True, use_container_width=True,
-             column_config={
-                 "Foto": image_col(), "% Reso": percent_col(), "Fatturato Netto": currency_col(),
-                 "Paia Spedite": number_col(), "Paia Rese": number_col(), "Paia Nette": number_col(),
-             })
+data_table(top_df.head(top_n), {
+    "Foto": image_col(), "% Reso": percent_col(), "Fatturato Netto": currency_col(),
+    "Paia Spedite": number_col(), "Paia Rese": number_col(), "Paia Nette": number_col(),
+})
