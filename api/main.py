@@ -1,12 +1,12 @@
 """
-EcomAnalysis â API dati esterna v1 (FastAPI + Uvicorn).
+EcomAnalysis — API dati esterna v1 (FastAPI + Uvicorn).
 
 Espone in LETTURA i dati del DB SQLite condiviso (data/ecombi.db) verso strumenti
 esterni: Excel/Power Query, Power BI, script, applicazioni di terze parti.
 
 - ZERO logica di business qui: le letture passano da core/db.py (query_period,
   get_data_bounds, get_stats, get_upload_log) e core/metrics.py
-  (compute_channel_kpi) â le stesse funzioni usate dalle pagine Streamlit,
+  (compute_channel_kpi) — le stesse funzioni usate dalle pagine Streamlit,
   quindi le cifre coincidono SEMPRE con l'app.
 - Autenticazione (una delle due, in alternativa):
     1) header X-API-Key: chiave generata dalla pagina "Account e 2FA"
@@ -17,7 +17,7 @@ esterni: Excel/Power Query, Power BI, script, applicazioni di terze parti.
       venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8001
 - Documentazione interattiva: http://127.0.0.1:8001/api/docs
 
-Variabili d'ambiente (api/.env â SOLO sul VPS, mai committato):
+Variabili d'ambiente (api/.env — SOLO sul VPS, mai committato):
   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
   ECOM_DB_PATH (default data/ecombi.db),
   ECOM_API_MAX_RIGHE (default 50000), ECOM_API_CACHE_TTL secondi (default 300)
@@ -85,7 +85,7 @@ async def _lifespan(app: FastAPI):
                                ("SUPABASE_ANON_KEY", SUPABASE_ANON_KEY),
                                ("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_SERVICE_ROLE_KEY)) if not v]
     if mancanti:
-        raise RuntimeError(f"api/.env incompleto â mancanti: {', '.join(mancanti)}")
+        raise RuntimeError(f"api/.env incompleto — mancanti: {', '.join(mancanti)}")
     yield
 
 
@@ -102,8 +102,8 @@ app = FastAPI(
 # ---------------------------------------------------------------------------------------
 # Autenticazione: chiave API (hash su Supabase) oppure Bearer JWT
 # ---------------------------------------------------------------------------------------
-_KEY_CACHE: dict[str, tuple[dict, float]] = {}   # hash â (riga, scadenza cache)
-_LAST_USED: dict[str, float] = {}                # hash â ts ultima PATCH last_used_at
+_KEY_CACHE: dict[str, tuple[dict, float]] = {}   # hash → (riga, scadenza cache)
+_LAST_USED: dict[str, float] = {}                # hash → ts ultima PATCH last_used_at
 
 
 def _service_headers() -> dict:
@@ -129,7 +129,7 @@ def verify_api_key(key: str) -> dict:
         try:
             r = requests.get(url, headers=_service_headers(), timeout=10)
         except requests.RequestException:
-            raise HTTPException(503, "Supabase non raggiungibile: riprova piÃ¹ tardi.")
+            raise HTTPException(503, "Supabase non raggiungibile: riprova più tardi.")
         if r.status_code != 200:
             raise HTTPException(502, f"Errore Supabase ({r.status_code}) in validazione chiave.")
         trovate = r.json()
@@ -163,7 +163,7 @@ def verify_jwt(token: str) -> dict:
                          headers={"apikey": SUPABASE_ANON_KEY,
                                   "Authorization": f"Bearer {token}"}, timeout=10)
     except requests.RequestException:
-        raise HTTPException(503, "Supabase non raggiungibile: riprova piÃ¹ tardi.")
+        raise HTTPException(503, "Supabase non raggiungibile: riprova più tardi.")
     if r.status_code in (401, 403):
         raise HTTPException(401, "Token non valido o scaduto.")
     if r.status_code != 200:
@@ -199,7 +199,7 @@ def _filtra(df: pd.DataFrame, **colonne: str | None) -> pd.DataFrame:
 
 
 def _records(df: pd.DataFrame) -> list[dict]:
-    """DataFrame â lista di dict JSON-safe (NaN/NaTânull, TimestampâYYYY-MM-DD)."""
+    """DataFrame → lista di dict JSON-safe (NaN/NaT→null, Timestamp→YYYY-MM-DD)."""
     if df.empty:
         return []
     out: list[dict] = []
@@ -234,7 +234,7 @@ def _date_leggibili(df: pd.DataFrame) -> pd.DataFrame:
 def _df_md(df: pd.DataFrame) -> str:
     def cell(v):
         if v is None or v is pd.NaT or (isinstance(v, float) and pd.isna(v)):
-            return "â"
+            return "—"
         if isinstance(v, (float, np.floating)):
             return f"{float(v):,.2f}"
         if isinstance(v, (int, np.integer)):
@@ -249,11 +249,11 @@ def _df_md(df: pd.DataFrame) -> str:
 
 
 # ---------------------------------------------------------------------------------------
-# Presentazione output â nomi colonna pubblici + formati valori (solo csv/md/txt)
+# Presentazione output — nomi colonna pubblici + formati valori (solo csv/md/txt)
 # ---------------------------------------------------------------------------------------
 # Rinomina dei nomi "grezzi" delle colonne del DB nei nomi pubblici usati dall'app
-# (stessa mappa di nazioni_brand_share in core/report_builders.py: clzMappataâBrand,
-# nettoNettoâFatturato Netto, paiaSpediteâPaia spedite, â¦). Vale per TUTTI gli endpoint
+# (stessa mappa di nazioni_brand_share in core/report_builders.py: clzMappata→Brand,
+# nettoNetto→Fatturato Netto, paiaSpedite→Paia spedite, …). Vale per TUTTI gli endpoint
 # e TUTTI i formati di output, JSON compreso: nel JSON i VALORI restano numerici
 # (per Excel/Power BI/script), cambiano solo i nomi delle colonne.
 _RENAME_COLONNE = {
@@ -279,7 +279,7 @@ def _it_num(x: float, decimali: int = 2) -> str:
 def _fmt_valuta(x) -> str:
     if x is None or (isinstance(x, float) and pd.isna(x)):
         return ""
-    return f"{_it_num(float(x), 2)} â¬"
+    return f"{_it_num(float(x), 2)} €"
 
 
 def _fmt_intero(x) -> str:
@@ -304,12 +304,12 @@ def _fmt_var(x) -> str:
 def _tipo_colonna(nome: str) -> str | None:
     """Classifica una colonna per la presentazione, coprendo TUTTE le colonne di TUTTI
     gli endpoint e report: 'valuta' | 'intero' | 'percent' | 'var' (variazione % con
-    segno). None = lasciare il valore com'Ã¨ (testi, date, contatori generici).
+    segno). None = lasciare il valore com'è (testi, date, contatori generici).
 
     Esempi: 'Fatturato Netto', 'Fatt.Netto 2026', 'Netto spedito', 'Scontrino Medio',
-    'Margine Lordo' â valuta Â· 'Ordini', 'Paia spedite', 'Righe' â intero Â·
-    '% Reso', 'Share %', 'Reso % (valore)' â percent Â· 'VAR% FATT', 'Var % Ordini YoY'
-    â var."""
+    'Margine Lordo' → valuta · 'Ordini', 'Paia spedite', 'Righe' → intero ·
+    '% Reso', 'Share %', 'Reso % (valore)' → percent · 'VAR% FATT', 'Var % Ordini YoY'
+    → var."""
     n = str(nome).strip().lower()
     if "%" in n:
         return "var" if n.startswith("var") else "percent"
@@ -322,11 +322,11 @@ def _tipo_colonna(nome: str) -> str | None:
 
 
 def _pretty_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Per csv/md/txt: nomi colonna pubblici + valori formattati in stile italiano â
-    valute '1.234,56 â¬' (â¬ alla fine), interi senza decimali ('0' e non '0.00'),
+    """Per csv/md/txt: nomi colonna pubblici + valori formattati in stile italiano —
+    valute '1.234,56 €' (€ alla fine), interi senza decimali ('0' e non '0.00'),
     percentuali '50,0%' (e non 0.50), variazioni '+12,3%' con segno.
-    Si applica solo alle colonne NUMERICHE: le tabelle giÃ  formattate come stringa
-    (es. kpi_block, che Ã¨ stringa di proposito per i tipi misti per riga) restano
+    Si applica solo alle colonne NUMERICHE: le tabelle già formattate come stringa
+    (es. kpi_block, che è stringa di proposito per i tipi misti per riga) restano
     invariate. Il JSON non passa di qui: resta numerico."""
     out = df.rename(columns=_RENAME_COLONNE).copy()
     for c in out.columns:
@@ -366,7 +366,7 @@ def _rispondi(df: pd.DataFrame, fmt: str, parametri: dict, nome: str,
     if fmt == "csv":
         corpo, media = df.to_csv(index=False, lineterminator="\n"), "text/csv; charset=utf-8"
     elif fmt == "md":
-        corpo = ("**" + nome + "** â parametri: "
+        corpo = ("**" + nome + "** — parametri: "
                  + ", ".join(f"{k}={v}" for k, v in parametri.items())
                  + "\n\n" + _df_md(df) + "\n")
         media = "text/markdown; charset=utf-8"
@@ -444,7 +444,7 @@ def periodi(ident: dict = Depends(require_auth)) -> dict:
 
 def _check_periodo(da: date, a: date) -> None:
     if da > a:
-        raise HTTPException(400, f"Periodo invertito: 'da' ({da}) Ã¨ successivo ad 'a' ({a}).")
+        raise HTTPException(400, f"Periodo invertito: 'da' ({da}) è successivo ad 'a' ({a}).")
 
 
 @app.get("/api/v1/vendite")
@@ -463,9 +463,9 @@ def vendite(
 ) -> Response:
     """Righe di vendita del periodo (data vendita tra `da` e `a`, estremi inclusi).
 
-    level=raw   â le singole righe (json/csv/md/txt)
-    level=group â righe aggregate per `group` (default mkp), ordinate per netto decrescente
-    level=kpi  â sintesi del periodo (solo json; ignora format/group)
+    level=raw   → le singole righe (json/csv/md/txt)
+    level=group → righe aggregate per `group` (default mkp), ordinate per netto decrescente
+    level=kpi  → sintesi del periodo (solo json; ignora format/group)
     """
     _check_periodo(da, a)
     filtri = _filtri_comuni(mkp, nazione, brand, sku, genere, taglia, acquirente)
@@ -500,7 +500,7 @@ def vendite(
 
 
 def _mappa_filtri(filtri: dict) -> dict:
-    """Parametri pubblici â colonne del DataFrame restituito da query_period."""
+    """Parametri pubblici → colonne del DataFrame restituito da query_period."""
     return {"mkp": filtri.get("mkp"), "nazione": filtri.get("nazione"),
             "clzMappata": filtri.get("brand"), "sku13": filtri.get("sku"),
             "genere": filtri.get("genere"), "taglia": filtri.get("taglia"),
@@ -521,8 +521,8 @@ def resi(
 ) -> Response:
     """Resi del periodo (data reso tra `da` e `a`).
 
-    tipo=in_periodo â resi di vendite SPEDITE nel periodo e rientrate nel periodo
-    tipo=extra       â rimborsi "standalone": resi nel periodo la cui vendita non Ã¨
+    tipo=in_periodo → resi di vendite SPEDITE nel periodo e rientrate nel periodo
+    tipo=extra       → rimborsi "standalone": resi nel periodo la cui vendita non è
                        nel periodo/esistente (stessa semantica dell'app: decrementano
                        il fatturato reale del periodo)
     """
@@ -551,7 +551,7 @@ def kpi(
 ) -> JSONResponse:
     """Sintesi del periodo: i KPI principali, con lo stesso calcolo dell'app.
 
-    fatturatoNettoReale = netto spedito â resi in periodo â rimborsi extra
+    fatturatoNettoReale = netto spedito − resi in periodo − rimborsi extra
     (identico a compute_channel_kpi usato dalle pagine di report).
     """
     _check_periodo(da, a)
@@ -563,7 +563,7 @@ def kpi(
 
 
 # ---------------------------------------------------------------------------------------
-# Report â estrae i report delle pagine dell'app riusando core/report_builders.py
+# Report — estrae i report delle pagine dell'app riusando core/report_builders.py
 # (le stesse identiche funzioni/tabelle/cifre che l'app renderizza in Streamlit).
 # ---------------------------------------------------------------------------------------
 from core import aggregations as aggm
@@ -579,7 +579,7 @@ _DIM_REPORT = {"mkp": "mkp", "nazione": "nazione", "brand": "clzMappata"}
 def _shift_year(d: date, n: int) -> date:
     try:
         return d.replace(year=d.year + n)
-    except ValueError:                     # 29 febbraio â 28
+    except ValueError:                     # 29 febbraio → 28
         return d.replace(year=d.year + n, day=28)
 
 
@@ -625,11 +625,11 @@ def _sezioni_report(tipo: str, pipe, y_curr: str, dim: str, top: int,
                     ) -> list[tuple[str, pd.DataFrame]]:
     """Lista [(titolo, DataFrame)]: replica le chiamate alle stesse funzioni delle pagine.
 
-    Regola periodi (a richiesta): `confronti` = 0/1/2 lo decide l'endpoint â
+    Regola periodi (a richiesta): `confronti` = 0/1/2 lo decide l'endpoint —
     0 = solo periodo scelto; 1 = + anno-1; 2 = + anno-1 e anno-2.
     `periodi_confronto` = [(etichetta-anno, df vendite, df rimborsi extra)] dei
-    periodi richiesti e effettivamente coperti dal DB (giÃ  filtrati);
-    con confronti=0 Ã¨ una lista vuota e i report mostrano solo l'anno scelto.
+    periodi richiesti e effettivamente coperti dal DB (già filtrati);
+    con confronti=0 è una lista vuota e i report mostrano solo l'anno scelto.
     """
     cur = pipe.current_data
     sc = pipe.esito_resi_current["standalone"]
@@ -646,9 +646,9 @@ def _sezioni_report(tipo: str, pipe, y_curr: str, dim: str, top: int,
                  rbm.single_year_table(aggm.aggregate_by_key(df, "clzMappata"), y, "paiaNette")),
                 ("Top Articoli", rbm.top_articoli_dashboard(df, pipe.anagrafica, top_n=top)),
             ]
-        out += [(f"{t} â {y_curr}", d) for t, d in _dash(cur, y_curr)]
+        out += [(f"{t} — {y_curr}", d) for t, d in _dash(cur, y_curr)]
         for y, old, _ in periodi_confronto:
-            out += [(f"{t} â {y}", d) for t, d in _dash(old, y)]
+            out += [(f"{t} — {y}", d) for t, d in _dash(old, y)]
         return out
 
     if tipo == "y2y_generale":
@@ -656,15 +656,15 @@ def _sezioni_report(tipo: str, pipe, y_curr: str, dim: str, top: int,
             kpi = rbm.kpi_block(ecm.compute_channel_kpi(cur, sc),
                                 ecm.compute_channel_kpi(old, so), y_curr, y)
             if kpi is not None:
-                out.append((f"KPI Principali â {y_curr} vs {y}", kpi))
-            out.append((f"Andamento Mensile â {y_curr} vs {y}",
+                out.append((f"KPI Principali — {y_curr} vs {y}", kpi))
+            out.append((f"Andamento Mensile — {y_curr} vs {y}",
                         rbm.monthly_trend(cur, old, sc, so, y_curr, y)))
         col = _DIM_REPORT[dim]
         for y, old, _ in periodi_confronto:
-            out.append((f"Comparativa per {dim} â {y_curr} vs {y}",
+            out.append((f"Comparativa per {dim} — {y_curr} vs {y}",
                         rbm.comparative_table(aggm.aggregate_by_key(cur, col),
                                               aggm.aggregate_by_key(old, col), y_curr, y, "fatturatoNetto")))
-            out.append((f"Top Articoli â {y_curr} vs {y}",
+            out.append((f"Top Articoli — {y_curr} vs {y}",
                         rbm.top_articoli_y2y(cur, old, pipe.anagrafica, y_curr, y, top_n=top)))
 
     elif tipo == "y2y_collezioni":
@@ -683,12 +683,12 @@ def _sezioni_report(tipo: str, pipe, y_curr: str, dim: str, top: int,
                 df = rbm.flatten_hierarchical_table(
                     aggm.aggregate_hierarchical_custom(cur, keys, skip),
                     aggm.aggregate_hierarchical_custom(old, keys, skip), levels)
-                out.append((f"{titolo} â {y_curr} vs {y}",
+                out.append((f"{titolo} — {y_curr} vs {y}",
                             df.drop(columns="Depth", errors="ignore")))
 
     elif tipo == "y2y_codici":
         for y, old, _ in periodi_confronto:
-            out.append((f"Comparativa Codici (SKU7) â {y_curr} vs {y}",
+            out.append((f"Comparativa Codici (SKU7) — {y_curr} vs {y}",
                         rbm.comparativa_codici(cur, old, pipe.anagrafica, y_curr, y)))
 
     elif tipo == "taglie":
@@ -703,42 +703,42 @@ def _sezioni_report(tipo: str, pipe, y_curr: str, dim: str, top: int,
             vuota = pd.DataFrame(columns=["Brand", "Gruppo", "Taglia", "Paia Nette",
                                           "% su gruppo", "% Reso", "Fatturato Netto"])
             return pd.concat(pezzi, ignore_index=True) if pezzi else vuota
-        out.append((f"Taglie per Brand â {y_curr}", _taglie_uno(cur)))
+        out.append((f"Taglie per Brand — {y_curr}", _taglie_uno(cur)))
         for y, old, _ in periodi_confronto:
-            out.append((f"Taglie per Brand â {y}", _taglie_uno(old)))
+            out.append((f"Taglie per Brand — {y}", _taglie_uno(old)))
 
     elif tipo == "resi":
-        out.append((f"Stato Resi per Brand/Collezione â {y_curr}", rbm.resi_status(cur)))
+        out.append((f"Stato Resi per Brand/Collezione — {y_curr}", rbm.resi_status(cur)))
         for y, old, _ in periodi_confronto:
-            out.append((f"Stato Resi per Brand/Collezione â {y}", rbm.resi_status(old)))
+            out.append((f"Stato Resi per Brand/Collezione — {y}", rbm.resi_status(old)))
 
     elif tipo == "nazioni":
         dfs = [cur] + [old for _, old, _ in periodi_confronto]
         naz = nazioni or (["GLOBAL"] + rbm.nazioni_disponibili(*dfs))
         if naz:
-            out.append((f"KPI per nazione â {y_curr}", rbm.nazioni_metrics(cur, sc, naz)))
+            out.append((f"KPI per nazione — {y_curr}", rbm.nazioni_metrics(cur, sc, naz)))
             for y, old, so in periodi_confronto:
-                out.append((f"KPI per nazione â {y}", rbm.nazioni_metrics(old, so, naz)))
+                out.append((f"KPI per nazione — {y}", rbm.nazioni_metrics(old, so, naz)))
             for n in naz:
-                out.append((f"Share brand â {n} â {y_curr}", rbm.nazioni_brand_share(cur, n)))
+                out.append((f"Share brand — {n} — {y_curr}", rbm.nazioni_brand_share(cur, n)))
                 for y, old, _ in periodi_confronto:
-                    out.append((f"Share brand â {n} â {y}", rbm.nazioni_brand_share(old, n)))
+                    out.append((f"Share brand — {n} — {y}", rbm.nazioni_brand_share(old, n)))
 
     elif tipo == "mensile":
         # report "Mese per Mese": mesi dal mese di `da` al mese di `a` (finestra mobile,
-        # NON gennaioâdicembre), con stagioni SS (marâago) / FW (setâfeb) e confronti
-        # anno-1/anno-2 come per gli altri report (confronti=0 â solo periodo scelto).
+        # NON gennaio→dicembre), con stagioni SS (mar–ago) / FW (set–feb) e confronti
+        # anno-1/anno-2 come per gli altri report (confronti=0 → solo periodo scelto).
         periodi = [(y_curr, cur, sc)] + list(periodi_confronto)
         df_mesi, df_stagioni = rbm.monthly_season_report(da, a, periodi)
-        out.append((f"Andamento Mese per Mese â {y_curr}", df_mesi))
-        out.append((f"Statistiche Stagioni SS/FW â {y_curr}", df_stagioni))
+        out.append((f"Andamento Mese per Mese — {y_curr}", df_mesi))
+        out.append((f"Statistiche Stagioni SS/FW — {y_curr}", df_stagioni))
 
     elif tipo == "unificato":
         periodi = [(y_curr, cur)] + [(y, old) for y, old, _ in periodi_confronto]
         dfs = [cur] + [old for _, old, _ in periodi_confronto]
         naz = nazioni or rbm.nazioni_disponibili(*dfs)
         if naz:
-            out.append(("Report Unificato â Marketplace Ã Nazione Ã Brand",
+            out.append(("Report Unificato — Marketplace × Nazione × Brand",
                         rbm.nazioni_unified_report(periodi, naz)))
     return out
 
@@ -785,7 +785,7 @@ def report(
                       pattern="^(" + "|".join(_TIPI_REPORT) + ")$"),
     # NB: da/a con Query(...) restano OBBLIGATORI (per FastAPI "..." = required),
     # ma danno a Python un default formale: senza, "parameter without a default
-    # follows parameter with a default" perchÃ© tipo=... viene prima.
+    # follows parameter with a default" perché tipo=... viene prima.
     da: date = Query(..., description="Inizio periodo scelto, YYYY-MM-DD"),
     a: date = Query(..., description="Fine periodo scelto, YYYY-MM-DD"),
     confronti: int = Query(0, ge=0, le=2,
@@ -805,13 +805,13 @@ def report(
     """Estrae uno dei report dell'app, con le stesse identiche tabelle e cifre.
 
     Periodi (a richiesta, parametro `confronti`):
-      - 0 (default) â solo il periodo scelto [da, a];
-      - 1 â aggiunge il periodoâ1 anno; 2 â aggiunge anche il periodoâ2 anno;
-      - valori fuori 0â2 â 422 (validazione automatica). I tipi y2y_* sono
+      - 0 (default) → solo il periodo scelto [da, a];
+      - 1 → aggiunge il periodo−1 anno; 2 → aggiunge anche il periodo−2 anno;
+      - valori fuori 0–2 → 422 (validazione automatica). I tipi y2y_* sono
         comparativi per natura: con confronti=0 rispondono 400. Il tipo `mensile`
         (Andamento Mese per Mese con stagioni SS/FW) accetta anche confronti=0.
     Etichette anno ovunque = anno della DATA FINALE del periodo scelto e i
-    relativi -1/-2 (es. a=2026-06-30 â "2026", "2025", "2024").
+    relativi -1/-2 (es. a=2026-06-30 → "2026", "2025", "2024").
     Formato default: md; json per elaborazioni, csv/txt per Excel.
     """
     _check_periodo(da, a)
@@ -860,5 +860,5 @@ def report(
     if non_coperti:
         parametri["avviso"] = ("Periodi di confronto non coperti dal DB: "
                                + ", ".join(non_coperti)
-                               + " â il report mostra solo gli anni con dati.")
+                               + " — il report mostra solo gli anni con dati.")
     return _rispondi_report(sezioni, fmt, parametri, f"report_{tipo}_{da}_{a}", download)
