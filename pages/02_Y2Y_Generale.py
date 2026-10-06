@@ -6,26 +6,26 @@ from core import aggregations as agg
 from core import report_builders as rb
 from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col, image_col, period_labels, shift_year
 
-st.set_page_config(page_title="Y2Y Generale", page_icon="📈", layout="wide")
-st.title("📈 Comparativa Year-over-Year — Generale")
+st.set_page_config(page_title="Y2Y Generale", page_icon="ð", layout="wide")
+st.title("ð Comparativa Year-over-Year â Generale")
 
 pipe = guard_pipeline()
 
 if pipe.old_data.empty:
-    st.warning("L'anno−1 non è coperto dal DB: non ci sono dati da confrontare. Scegli un periodo il cui anno precedente sia coperto in **⬆️ Carica Dati** e rigenera.")
+    st.warning("L'annoâ1 non Ã¨ coperto dal DB: non ci sono dati da confrontare. Scegli un periodo il cui anno precedente sia coperto in **â¬ï¸ Carica Dati** e rigenera.")
     st.stop()
 
 y_curr, y_old = period_labels(2)
 st.caption(
-    f"**{y_curr}**: {st.session_state.get('periodo_a_label', '—')} · "
-    f"**{y_old}**: {st.session_state.get('periodo_b_label', '—')}"
+    f"**{y_curr}**: {st.session_state.get('periodo_a_label', 'â')} Â· "
+    f"**{y_old}**: {st.session_state.get('periodo_b_label', 'â')}"
 )
 
 current_data, old_data = pipe.current_data, pipe.old_data
 resi_standalone_current = pipe.esito_resi_current["standalone"]
 resi_standalone_old = pipe.esito_resi_old["standalone"]
 
-# --- Anno−2 opzionale (spunta "Confronta anche 2 anni precedenti" in ⬆️ Carica Dati):
+# --- Annoâ2 opzionale (spunta "Confronta anche 2 anni precedenti" in â¬ï¸ Carica Dati):
 # calcolato automaticamente spostando di due anni il periodo scelto in home.
 periodo_a = st.session_state.get("sel_periodo_a")
 mostra_3_vie = bool(periodo_a and st.session_state.get("sel_confronta_2anni", False))
@@ -37,9 +37,9 @@ if mostra_3_vie:
     conn = db.connect()
     data_2anni, standalone_2anni = db.query_period(conn, *periodo_c, pipe.perimetro)
     y_2anni = period_labels(3)[2]
-    st.caption(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
+    st.caption(f"**{y_2anni}**: {periodo_c[0]} â {periodo_c[1]}")
     if data_2anni.empty:
-        st.caption("Nessun dato nel DB per l'anno−2: il confronto resterà vuoto.")
+        st.caption("Nessun dato nel DB per l'annoâ2: il confronto resterÃ  vuoto.")
 
 diretto_pred = lambda df: df["tipoSpedizione"] == "DIRETTO"
 zalando_pred = lambda df: df["ordineId"].str.contains("_ZFS", na=False) if not df.empty else df.index < 0
@@ -64,42 +64,77 @@ def show_kpi_block(title, kc, ko, label_curr, label_old, kc2=None, label_2=None)
 kpi_c = met.compute_channel_kpi(current_data, resi_standalone_current)
 kpi_o = met.compute_channel_kpi(old_data, resi_standalone_old)
 kpi_2 = met.compute_channel_kpi(data_2anni, standalone_2anni) if mostra_3_vie else None
-show_kpi_block("📊 KPI Principali", kpi_c, kpi_o, y_curr, y_old, kpi_2, y_2anni)
+show_kpi_block("ð KPI Principali", kpi_c, kpi_o, y_curr, y_old, kpi_2, y_2anni)
 
 diretto_c = met.compute_channel_kpi(current_data, resi_standalone_current, diretto_pred)
 diretto_o = met.compute_channel_kpi(old_data, resi_standalone_old, diretto_pred)
 diretto_2 = met.compute_channel_kpi(data_2anni, standalone_2anni, diretto_pred) if mostra_3_vie else None
-show_kpi_block("🟢 Diretti — fatturato e scostamento", diretto_c, diretto_o, y_curr, y_old, diretto_2, y_2anni)
+show_kpi_block("ð¢ Diretti â fatturato e scostamento", diretto_c, diretto_o, y_curr, y_old, diretto_2, y_2anni)
 
 zalando_c = met.compute_channel_kpi(current_data, resi_standalone_current, zalando_pred)
 zalando_o = met.compute_channel_kpi(old_data, resi_standalone_old, zalando_pred)
 zalando_2 = met.compute_channel_kpi(data_2anni, standalone_2anni, zalando_pred) if mostra_3_vie else None
-show_kpi_block("🟠 Zalando (ZFS) — fatturato e scostamento", zalando_c, zalando_o, y_curr, y_old, zalando_2, y_2anni)
+show_kpi_block("ð  Zalando (ZFS) â fatturato e scostamento", zalando_c, zalando_o, y_curr, y_old, zalando_2, y_2anni)
 
 st.divider()
-st.subheader("📅 Andamento Mensile — Fatturato Netto Reale")
-trend = rb.monthly_trend(current_data, old_data, resi_standalone_current, resi_standalone_old, y_curr, y_old)
-if trend.empty:
-    st.caption("Nessuna vendita con data valida trovata nel periodo/perimetro selezionato.")
-else:
-    y_cols = [f"Fatt.Netto Reale {y_curr}", f"Fatt.Netto Reale {y_old}"]
+st.subheader("ð Andamento Mensile â Fatturato Netto Reale")
+# Mesi dal mese di INIZIO del periodo scelto al mese finale (finestra mobile, non piÃ¹
+# fissa gennaioâdicembre): es. periodo 2025-11-01 â 2026-11-01 = Novembre 2025 â¦
+# Novembre 2026. Ogni mese porta la propria stagione SS (marâago) / FW (setâfeb) e
+# le variazioni vs annoâ1 (e annoâ2 se la spunta in â¬ï¸ Carica Dati Ã¨ attiva).
+periodo_sel = st.session_state.get("sel_periodo_a")
+if periodo_sel:
+    periodi_mensili = [(y_curr, current_data, resi_standalone_current),
+                       (y_old, old_data, resi_standalone_old)]
     if mostra_3_vie and not data_2anni.empty:
-        trend_2 = rb.monthly_trend(current_data, data_2anni, resi_standalone_current, standalone_2anni, y_curr, y_2anni)
-        trend[f"Fatt.Netto Reale {y_2anni}"] = trend_2[f"Fatt.Netto Reale {y_2anni}"]
-        y_cols.append(f"Fatt.Netto Reale {y_2anni}")
-    fig = px.line(trend, x="Mese", y=y_cols, markers=True)
-    fig.update_layout(legend_title_text="", yaxis_title="Fatturato Netto Reale (€)")
-    st.plotly_chart(fig, use_container_width=True)
-    col_config = {c: currency_col() for c in y_cols}
-    col_config.update({"VAR% FATT": percent_col(), f"% Reso {y_curr}": percent_col(),
-                        f"Scontrino Medio {y_curr}": currency_col()})
-    st.dataframe(trend, hide_index=True, use_container_width=True, column_config=col_config)
+        periodi_mensili.append((y_2anni, data_2anni, standalone_2anni))
+    trend, stagioni = rb.monthly_season_report(periodo_sel[0], periodo_sel[1], periodi_mensili)
+    if trend.empty:
+        st.caption("Nessuna vendita con data valida trovata nel periodo/perimetro selezionato.")
+    else:
+        y_cols = [c for c in trend.columns if c.startswith("Fatturato Netto ")]
+        fig = px.line(trend, x="Mese", y=y_cols, markers=True)
+        fig.update_layout(legend_title_text="", yaxis_title="Fatturato Netto Reale (â¬)")
+        st.plotly_chart(fig, use_container_width=True)
+        col_config = {}
+        for c in trend.columns:
+            if c.startswith("Fatturato Netto "):
+                col_config[c] = currency_col()
+            elif c.startswith("VAR%"):
+                col_config[c] = percent_col()
+            elif c.startswith("% Reso"):
+                col_config[c] = percent_col()
+            elif c.startswith(("Ordini ", "Paia Nette ")):
+                col_config[c] = number_col()
+        st.dataframe(trend, hide_index=True, use_container_width=True, column_config=col_config)
+
+        st.subheader("ð¡ï¸ Statistiche Stagioni SS/FW")
+        st.caption("SS = 01 marzo â 31 agosto Â· FW = 01 settembre â 28-29 febbraio. "
+                   "\u201cMesi nel periodo\u201d = mesi della stagione presenti nel periodo scelto (su 6).")
+        st.dataframe(stagioni, hide_index=True, use_container_width=True, column_config=col_config)
+else:
+    trend = rb.monthly_trend(current_data, old_data, resi_standalone_current, resi_standalone_old, y_curr, y_old)
+    if trend.empty:
+        st.caption("Nessuna vendita con data valida trovata nel periodo/perimetro selezionato.")
+    else:
+        y_cols = [f"Fatt.Netto Reale {y_curr}", f"Fatt.Netto Reale {y_old}"]
+        if mostra_3_vie and not data_2anni.empty:
+            trend_2 = rb.monthly_trend(current_data, data_2anni, resi_standalone_current, standalone_2anni, y_curr, y_2anni)
+            trend[f"Fatt.Netto Reale {y_2anni}"] = trend_2[f"Fatt.Netto Reale {y_2anni}"]
+            y_cols.append(f"Fatt.Netto Reale {y_2anni}")
+        fig = px.line(trend, x="Mese", y=y_cols, markers=True)
+        fig.update_layout(legend_title_text="", yaxis_title="Fatturato Netto Reale (â¬)")
+        st.plotly_chart(fig, use_container_width=True)
+        col_config = {c: currency_col() for c in y_cols}
+        col_config.update({"VAR% FATT": percent_col(), f"% Reso {y_curr}": percent_col(),
+                            f"Scontrino Medio {y_curr}": currency_col()})
+        st.dataframe(trend, hide_index=True, use_container_width=True, column_config=col_config)
 
 st.divider()
 for title, key, sort_type in [
-    ("📦 Dettaglio Marketplace (Y2Y)", "mkp", "fatturatoNetto"),
-    ("🌍 Dettaglio Nazioni (Y2Y)", "nazione", "fatturatoNetto"),
-    ("📈 Dettaglio Collezioni (Y2Y)", "clzMappata", "paiaNette"),
+    ("ð¦ Dettaglio Marketplace (Y2Y)", "mkp", "fatturatoNetto"),
+    ("ð Dettaglio Nazioni (Y2Y)", "nazione", "fatturatoNetto"),
+    ("ð Dettaglio Collezioni (Y2Y)", "clzMappata", "paiaNette"),
 ]:
     st.subheader(title)
     df = rb.comparative_table(agg.aggregate_by_key(current_data, key), agg.aggregate_by_key(old_data, key),
@@ -120,14 +155,14 @@ for title, key, sort_type in [
             })
 
 st.divider()
-st.subheader(f"🏆 Top 20 Articoli — {y_curr} (con confronto Y2Y)")
+st.subheader(f"ð Top 20 Articoli â {y_curr} (con confronto Y2Y)")
 top = rb.top_articoli_y2y(current_data, old_data, pipe.anagrafica, y_curr, y_old, top_n=20)
 st.dataframe(top, hide_index=True, use_container_width=True, column_config={
     "Foto": image_col(), f"Fatt.Netto {y_curr}": currency_col(), f"Fatt.Netto {y_old}": currency_col(),
     "VAR% FATT": percent_col(), f"% Reso {y_curr}": percent_col(), f"Paia Nette {y_curr}": number_col(),
 })
 if mostra_3_vie and not data_2anni.empty:
-    with st.expander(f"Top 20 Articoli — confronto con {y_2anni}"):
+    with st.expander(f"Top 20 Articoli â confronto con {y_2anni}"):
         top2 = rb.top_articoli_y2y(current_data, data_2anni, pipe.anagrafica, y_curr, y_2anni, top_n=20)
         st.dataframe(top2, hide_index=True, use_container_width=True, column_config={
             "Foto": image_col(), f"Fatt.Netto {y_curr}": currency_col(), f"Fatt.Netto {y_2anni}": currency_col(),
