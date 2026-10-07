@@ -3,14 +3,18 @@ import { useAuth } from "../lib/auth";
 import { UnauthorizedError } from "../lib/api";
 import { useTheme } from "../components/ui";
 
-/* Schermata di login: unica credenziale = chiave API (ecm_...).
-   Verifica contro /api/v1/me; la sessione resta in localStorage finche'
-   non si fa logout o la chiave viene revocata. */
+/* Login con due modalita': email + password (con 2FA TOTP se l'utente ha un
+   fattore verificato) oppure chiave API ecm_... */
 
 export default function Login() {
   const { t } = useTheme();
-  const { login } = useAuth();
+  const { loginWithKey, loginStartEmail, loginVerifyCode } = useAuth();
+  const [tab, setTab] = useState<"email" | "key">("email");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [key, setKey] = useState("");
+  const [code, setCode] = useState("");
+  const [mfa, setMfa] = useState<{ factorId: string; challengeId: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -20,14 +24,45 @@ export default function Login() {
     outline: "none",
   } as React.CSSProperties;
 
-  const submit = async () => {
+  const submitEmail = async () => {
+    if (!email.trim() || !password) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await loginStartEmail(email.trim(), password);
+      if (r.needsCode && r.factorId && r.challengeId) {
+        setMfa({ factorId: r.factorId, challengeId: r.challengeId });
+      }
+    } catch (e) {
+      const c = String((e as { code?: string })?.code ?? "");
+      if (c === "invalid_credentials") setErr("Email o password non validi.");
+      else if (c === "email_not_confirmed") setErr("Email non confermata.");
+      else setErr(String((e as Error)?.message ?? "Errore di accesso."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitCode = async () => {
+    if (!mfa || code.trim().length < 6) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await loginVerifyCode(mfa.factorId, mfa.challengeId, code.trim());
+    } catch {
+      setErr("Codice non valido. Riprova.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitKey = async () => {
     const k = key.trim();
     if (!k) return;
     setBusy(true);
     setErr(null);
     try {
-      await login(k);
-      /* il re-render della shell sostituira' questa pagina */
+      await loginWithKey(k);
     } catch (e) {
       if (e instanceof UnauthorizedError) setErr("Chiave non valida o revocata.");
       else setErr("Servizio non raggiungibile. Riprova piu' tardi.");
@@ -35,6 +70,15 @@ export default function Login() {
       setBusy(false);
     }
   };
+
+  const tabBtn = (v: "email" | "key", label: string) => (
+    <button onClick={() => { setTab(v); setErr(null); setMfa(null); }}
+            className={"px-3.5 py-2 rounded-lg text-xs font-semibold flex-1"}
+            style={{ border: "1px solid " + (tab === v ? t.accent : t.border),
+                     color: tab === v ? t.accent : t.muted, background: t.card }}>
+      {label}
+    </button>
+  );
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: t.bg }}>
@@ -50,30 +94,71 @@ export default function Login() {
             </div>
           </div>
 
-          <p className="text-sm font-bold mb-1">Accedi</p>
-          <p className="text-xs mb-5" style={{ color: t.muted }}>
-            Inserisci la tua chiave API per accedere alle analisi.
-          </p>
+          {mfa ? (
+            <div>
+              <p className="text-sm font-bold mb-1">Verifica in due passaggi</p>
+              <p className="text-xs mb-5" style={{ color: t.muted }}>
+                Inserisci il codice a 6 cifre dalla tua app authenticator.
+              </p>
+              <input type="text" inputMode="numeric" placeholder="000000" value={code} style={inputStyle} autoFocus
+                     onChange={(e) => setCode(e.target.value)}
+                     onKeyDown={(e) => { if (e.key === "Enter") submitCode(); }} />
+              {err && <p className="text-xs font-semibold mt-3" style={{ color: t.negative }}>{err}</p>}
+              <button onClick={submitCode} disabled={busy || code.trim().length < 6}
+                      className="w-full mt-5 py-2.5 rounded-lg text-sm font-bold"
+                      style={{ background: t.accent, color: "#FFFFFF", opacity: busy || code.trim().length < 6 ? 0.55 : 1 }}>
+                {busy ? "Verifica..." : "Verifica codice"}
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div className="flex gap-2 mb-5">
+                {tabBtn("email", "Email e password")}
+                {tabBtn("key", "Chiave API")}
+              </div>
 
-          <label className="block">
-            <span className="block text-[11px] font-semibold mb-1.5" style={{ color: t.muted }}>Chiave API</span>
-            <input type="password" placeholder="ecm_..." value={key} style={inputStyle} autoFocus
-                   onChange={(e) => setKey(e.target.value)}
-                   onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
-          </label>
-
-          {err && (
-            <p className="text-xs font-semibold mt-3" style={{ color: t.negative }}>{err}</p>
+              {tab === "email" ? (
+                <div>
+                  <label className="block mb-3">
+                    <span className="block text-[11px] font-semibold mb-1.5" style={{ color: t.muted }}>Email</span>
+                    <input type="email" placeholder="nome@esempio.it" value={email} style={inputStyle}
+                           onChange={(e) => setEmail(e.target.value)}
+                           onKeyDown={(e) => { if (e.key === "Enter") submitEmail(); }} />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[11px] font-semibold mb-1.5" style={{ color: t.muted }}>Password</span>
+                    <input type="password" placeholder="Password" value={password} style={inputStyle}
+                           onChange={(e) => setPassword(e.target.value)}
+                           onKeyDown={(e) => { if (e.key === "Enter") submitEmail(); }} />
+                  </label>
+                  {err && <p className="text-xs font-semibold mt-3" style={{ color: t.negative }}>{err}</p>}
+                  <button onClick={submitEmail} disabled={busy || !email.trim() || !password}
+                          className="w-full mt-5 py-2.5 rounded-lg text-sm font-bold"
+                          style={{ background: t.accent, color: "#FFFFFF", opacity: busy || !email.trim() || !password ? 0.55 : 1 }}>
+                    {busy ? "Accesso..." : "Accedi"}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <label className="block">
+                    <span className="block text-[11px] font-semibold mb-1.5" style={{ color: t.muted }}>Chiave API</span>
+                    <input type="password" placeholder="ecm_..." value={key} style={inputStyle}
+                           onChange={(e) => setKey(e.target.value)}
+                           onKeyDown={(e) => { if (e.key === "Enter") submitKey(); }} />
+                  </label>
+                  {err && <p className="text-xs font-semibold mt-3" style={{ color: t.negative }}>{err}</p>}
+                  <button onClick={submitKey} disabled={busy || !key.trim()}
+                          className="w-full mt-5 py-2.5 rounded-lg text-sm font-bold"
+                          style={{ background: t.accent, color: "#FFFFFF", opacity: busy || !key.trim() ? 0.55 : 1 }}>
+                    {busy ? "Verifica..." : "Accedi"}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
-
-          <button onClick={submit} disabled={busy || !key.trim()}
-                  className="w-full mt-5 py-2.5 rounded-lg text-sm font-bold"
-                  style={{ background: t.accent, color: "#FFFFFF", opacity: busy || !key.trim() ? 0.55 : 1 }}>
-            {busy ? "Verifica..." : "Accedi"}
-          </button>
         </div>
         <p className="text-center text-[11px] mt-4" style={{ color: t.muted }}>
-          La chiave e le analisi restano sul tuo VPS.
+          La chiave, l'account e le analisi restano sul tuo VPS.
         </p>
       </div>
     </div>
