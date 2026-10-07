@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
-import { ThemeProvider, useTheme } from "./components/ui";
+import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { ThemeProvider, useTheme, LoadIndicator } from "./components/ui";
 import { useAuth, AuthProvider } from "./lib/auth";
-import { DataProvider } from "./lib/store";
+import { DataProvider, useProgress } from "./lib/store";
 import Dashboard from "./pages/Dashboard";
 import Y2Y from "./pages/Y2Y";
 import Collezioni from "./pages/Collezioni";
@@ -12,10 +12,11 @@ import Ordini from "./pages/Ordini";
 import Account from "./pages/Account";
 import Login from "./pages/Login";
 
-/* Shell ispirata a Berry/Material Admin. Il periodo e GLOBALE: di default e
-   l anno fiscale corrente (01/11 -> 31/10), modificabile da un selettore
-   richiudibile nell header (semi-nascosto). I dati si caricano UNA volta per
-   periodo (DataProvider) e tutte le pagine navigano senza attese. */
+/* Shell ispirata a Berry/Material Admin. Il periodo e GLOBALE (default: anno
+   fiscale 01/11 -> 31/10). Il caricamento dei dati del periodo parte UNA volta
+   e continua in background anche cambiando pagina: l'indicatore nella barra
+   in alto (a sinistra del selettore periodo) mostra l'avanzamento. Per gli
+   utenti Supabase senza 2FA attiva compare il banner che porta all'Account. */
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -47,9 +48,45 @@ function periodoDefault(): { da: string; a: string } {
   return { da: chiusura - 1 + "-11-01", a: chiusura + "-10-31" };
 }
 
+function HeaderBar({ da, a, onOpen }: { da: string; a: string; onOpen: () => void }) {
+  const { t } = useTheme();
+  const prog = useProgress();
+  const pill = da + " \u2192 " + a;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      {prog.pending > 0 && <LoadIndicator done={prog.done} total={prog.total} />}
+      <div className="flex-1 min-w-0" />
+      <button onClick={onOpen}
+              className="px-3.5 py-2 rounded-lg text-xs font-semibold"
+              style={{ border: "1px solid " + t.border, color: t.text, background: t.card }}>
+        {pill} {"\u25BE"}
+      </button>
+    </div>
+  );
+}
+
+function MfaBanner() {
+  const { t } = useTheme();
+  const navigate = useNavigate();
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 mb-4 rounded-xl"
+         style={{ border: "1px solid " + t.accent, background: t.accentSoft }}>
+      <p className="text-xs font-semibold" style={{ color: t.text }}>
+        Attiva l'autenticazione a due fattori (2FA) per proteggere il tuo account: e' obbligatoria.
+      </p>
+      <button onClick={() => navigate("/account")}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold"
+              style={{ background: t.accent, color: "#FFFFFF" }}>
+        Attiva ora
+      </button>
+    </div>
+  );
+}
+
 function Shell() {
   const { mode, t, toggle } = useTheme();
-  const { me, email, logout } = useAuth();
+  const { me, email, logout, mfaPending } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
   const def = periodoDefault();
   const [da, setDa] = useState(() => localStorage.getItem("ea_da") ?? def.da);
@@ -62,13 +99,17 @@ function Shell() {
   useEffect(() => { localStorage.setItem("ea_a", a); }, [a]);
   useEffect(() => { localStorage.setItem("ea_confronti", String(confronti)); }, [confronti]);
 
+  /* primo accesso senza 2FA: porta alla pagina Account per l'attivazione */
+  useEffect(() => {
+    if (mfaPending && location.pathname !== "/account") navigate("/account");
+  }, [mfaPending]);
+
   const inputStyle = {
     background: t.card, color: t.text, border: "1px solid " + t.border,
     borderRadius: 8, padding: "6px 10px", fontSize: 12,
   } as React.CSSProperties;
 
   const page = TITOLI[location.pathname] ?? TITOLI["/"];
-  const pill = da + " \u2192 " + a;
   const utente = me?.nome ?? email ?? "Utente";
 
   return (
@@ -120,17 +161,12 @@ function Shell() {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="px-8 py-4 flex flex-wrap items-center justify-between gap-4"
-               style={{ background: t.surface, borderBottom: "1px solid " + t.border }}>
-          <div>
+        <header className="px-8 py-4" style={{ background: t.surface, borderBottom: "1px solid " + t.border }}>
+          <div className="mb-3">
             <h1 className="text-xl font-extrabold tracking-tight">{page.title}</h1>
             <p className="text-xs mt-0.5" style={{ color: t.muted }}>{page.sub}</p>
           </div>
-          <button onClick={() => setPeriodoOpen(!periodoOpen)}
-                  className="px-3.5 py-2 rounded-lg text-xs font-semibold"
-                  style={{ border: "1px solid " + t.border, color: t.text, background: t.card }}>
-            {pill} {"\u25BE"}
-          </button>
+          <HeaderBar da={da} a={a} onOpen={() => setPeriodoOpen(!periodoOpen)} />
         </header>
         {/* selettore periodo semi-nascosto */}
         {periodoOpen && (
@@ -148,8 +184,8 @@ function Shell() {
               <span className="block mb-1">Confronti</span>
               <select value={confronti} style={inputStyle} onChange={(e) => setConfronti(Number(e.target.value))}>
                 <option value={0}>Solo periodo</option>
-                <option value={1}>+ anno\u22121</option>
-                <option value={2}>+ anno\u22121 e anno\u22122</option>
+                <option value={1}>{"+ anno\u22121"}</option>
+                <option value={2}>{"+ anno\u22121 e anno\u22122"}</option>
               </select>
             </label>
             <button onClick={() => { setDa(def.da); setA(def.a); }}
@@ -160,6 +196,7 @@ function Shell() {
           </div>
         )}
         <main className="flex-1 px-8 py-6">
+          {mfaPending && <MfaBanner />}
           <DataProvider da={da} a={a} confronti={confronti}>
             <Routes>
               <Route path="/" element={<Dashboard da={da} a={a} confronti={confronti} />} />
