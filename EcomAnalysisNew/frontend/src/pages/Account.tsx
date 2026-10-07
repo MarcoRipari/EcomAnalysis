@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { getPeriodi, PeriodiResp } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import * as sb from "../lib/supabase";
 import { Panel, Section, KpiCard, DataTable, fmtInt, useTheme } from "../components/ui";
 
-/* Account: sessione corrente (email Supabase o chiave API), attivazione 2FA
-   TOTP, copertura dati e ultimi caricamenti. */
+/* Account: sessione corrente, attivazione 2FA TOTP con QR code, copertura
+   dati e ultimi caricamenti. */
 
 export default function Account() {
   const { t } = useTheme();
-  const { me, email, mode, key, logout } = useAuth();
+  const { me, email, mode, key, logout, mfaPending, clearMfaPending } = useAuth();
   const [per, setPer] = useState<PeriodiResp | null>(null);
   const [factors, setFactors] = useState<number | null>(null);
   const [enroll, setEnroll] = useState<{ id: string; secret: string; uri: string } | null>(null);
@@ -49,7 +50,8 @@ export default function Account() {
       setFactors(1);
       setEnroll(null);
       setCode("");
-      setMsg("2FA attivata: d'ora in poi il login chiedera' il codice.");
+      setMsg("2FA attivata: d'ora in poi il login chiedera' il codice a 6 cifre.");
+      clearMfaPending();
     } catch {
       setErr("Codice non valido. Riprova.");
     } finally {
@@ -74,6 +76,13 @@ export default function Account() {
 
   return (
     <div className="max-w-4xl">
+      {mfaPending && mode === "sb" && (
+        <div className="mb-4 p-4 rounded-xl text-xs font-semibold"
+             style={{ border: "1px solid " + t.accent, background: t.accentSoft, color: t.text }}>
+          2FA non ancora attiva: completa l'attivazione qui sotto per proteggere l'account.
+        </div>
+      )}
+
       <Panel className="p-5">
         <p className="text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: t.muted }}>
           {mode === "sb" ? "Account utente" : "Chiave API"}
@@ -103,26 +112,35 @@ export default function Account() {
             <p className="text-sm font-semibold" style={{ color: t.positive }}>2FA attiva su questo account.</p>
           ) : enroll ? (
             <Panel className="p-4">
-              <p className="text-xs mb-2" style={{ color: t.muted }}>
-                Aggiungi questa chiave alla tua app authenticator (inserimento manuale), poi conferma con il codice generato.
-              </p>
-              <p className="text-xs font-mono break-all mb-3" style={{ color: t.text }}>Segreto: {enroll.secret}</p>
-              <p className="text-[10px] font-mono break-all mb-4" style={{ color: t.muted }}>{enroll.uri}</p>
-              <input type="text" inputMode="numeric" placeholder="000000" value={code} style={inputStyle}
-                     onChange={(e) => setCode(e.target.value)}
-                     onKeyDown={(e) => { if (e.key === "Enter") confirmCode(); }} />
-              {err && <p className="text-xs font-semibold mt-2" style={{ color: t.negative }}>{err}</p>}
-              <button onClick={confirmCode} disabled={busy || code.trim().length < 6}
-                      className="mt-3 px-3.5 py-2 rounded-lg text-xs font-bold"
-                      style={{ background: t.accent, color: "#FFFFFF",
-                               opacity: busy || code.trim().length < 6 ? 0.55 : 1 }}>
-                {busy ? "Verifica..." : "Conferma e attiva"}
-              </button>
+              <div className="flex flex-wrap items-start gap-6">
+                <div className="p-3 rounded-lg" style={{ background: "#FFFFFF", border: "1px solid " + t.border }}>
+                  <QRCodeSVG value={enroll.uri} size={150} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs mb-2" style={{ color: t.muted }}>
+                    Scansiona il QR con la tua app authenticator (Google Authenticator, Authy, 1Password...),
+                    oppure inserisci il codice manuale qui sotto. Poi conferma con il codice a 6 cifre generato.
+                  </p>
+                  <p className="text-xs font-mono break-all mb-3" style={{ color: t.text }}>
+                    Codice manuale: {enroll.secret}
+                  </p>
+                  <input type="text" inputMode="numeric" placeholder="000000" value={code} style={inputStyle}
+                         onChange={(e) => setCode(e.target.value)}
+                         onKeyDown={(e) => { if (e.key === "Enter") confirmCode(); }} />
+                  {err && <p className="text-xs font-semibold mt-2" style={{ color: t.negative }}>{err}</p>}
+                  <button onClick={confirmCode} disabled={busy || code.trim().length < 6}
+                          className="mt-3 px-3.5 py-2 rounded-lg text-xs font-bold"
+                          style={{ background: t.accent, color: "#FFFFFF",
+                                   opacity: busy || code.trim().length < 6 ? 0.55 : 1 }}>
+                    {busy ? "Verifica..." : "Conferma e attiva"}
+                  </button>
+                </div>
+              </div>
             </Panel>
           ) : (
             <div>
               <p className="text-xs mb-3" style={{ color: t.muted }}>
-                Nessun fattore 2FA attivo. Consigliato: protegge l'account anche se la password viene scoperta.
+                Nessun fattore 2FA attivo. E' obbligatorio: protegge l'account anche se la password viene scoperta.
               </p>
               {msg && <p className="text-xs font-semibold mb-2" style={{ color: t.positive }}>{msg}</p>}
               {err && <p className="text-xs font-semibold mb-2" style={{ color: t.negative }}>{err}</p>}
