@@ -114,7 +114,7 @@ export function Loading() {
   return <div className="py-16 text-center text-sm" style={{ color: t.muted }}>Caricamento...</div>;
 }
 
-export function LoadErr({ auth, error }: { auth: boolean; error?: string | null }) {
+export function LoadErr({ auth, error, onRetry }: { auth: boolean; error?: string | null; onRetry?: () => void }) {
   const { t } = useTheme();
   return (
     <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.text, background: t.card, boxShadow: t.shadow }}>
@@ -122,6 +122,29 @@ export function LoadErr({ auth, error }: { auth: boolean; error?: string | null 
       <p className="mt-1.5 text-xs" style={{ color: t.muted }}>
         {auth ? "Sessione scaduta o credenziali non valide: esci e accedi di nuovo." : (error ?? "Riprova piu' tardi.")}
       </p>
+      {!auth && onRetry && (
+        <button onClick={onRetry} className="mt-3 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                style={{ border: "1px solid " + t.border, color: t.accent, background: t.card }}>
+          Riprova
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* Indicatore di caricamento del periodo per la barra in alto: spinner +
+   conteggio. Da usare accanto al selettore del periodo. */
+export function LoadIndicator({ done, total }: { done: number; total: number }) {
+  const { t } = useTheme();
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+         style={{ border: "1px solid " + t.border, background: t.card }}
+         title="Caricamento dei dati del periodo in corso">
+      <div className="ea-spin" style={{ width: 13, height: 13, border: "2px solid " + t.border,
+                                         borderTopColor: t.accent }} />
+      <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: t.muted }}>
+        Caricamento {done}/{total}
+      </span>
     </div>
   );
 }
@@ -158,8 +181,7 @@ function ImageModal({ src, title, onClose }: { src: string; title: string; onClo
   );
 }
 
-/* Tabella Top Articoli: thumbnail a sinistra della riga, click = zoom.
-   Colonna immagine rilevata per nome; titolo troncato con tooltip. */
+/* Tabella Top Articoli: thumbnail a sinistra della riga, click = zoom. */
 export function TopArticoliTable({ columns, rows }: { columns: string[]; rows: Array<Record<string, unknown>> }) {
   const { t } = useTheme();
   const [zoom, setZoom] = useState<{ src: string; title: string } | null>(null);
