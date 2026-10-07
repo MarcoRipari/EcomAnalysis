@@ -133,36 +133,46 @@ export function LoadErr({ auth, error, onRetry }: { auth: boolean; error?: strin
 }
 
 /* Indicatore di stato del caricamento del periodo per la barra in alto.
-   SEMPRE visibile accanto al selettore del periodo:
-   - in caricamento: spinner + "Caricamento fatti/totale (restanti)";
-   - coda completata: pallino verde + "Dati pronti". */
-export function LoadIndicator({ done, total, pending }: { done: number; total: number; pending: number }) {
+   Compatto (stessa altezza della pill del periodo), SEMPRE visibile alla
+   sinistra del selettore. Al passaggio del mouse apre un pannello con lo
+   stato di ogni lavoro: luce arancione = in corso, verde = completato,
+   rossa = errore. */
+export function LoadIndicator({ prog }: { prog: { jobs: Array<{ id: string; label: string; status: "loading" | "ok" | "err" }>; loading: number; ok: number; err: number; total: number; ready: boolean } }) {
   const { t } = useTheme();
-  const mancanti = Math.max(total - done, 0);
-  if (pending > 0 || done < total) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
-           style={{ border: "1px solid " + t.border, background: t.card }}
-           title="Caricamento dei dati del periodo in corso: resta anche cambiando pagina">
-        <div className="ea-spin" style={{ width: 13, height: 13, border: "2px solid " + t.border,
-                                           borderTopColor: t.accent }} />
-        <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: t.muted }}>
-          Caricamento {done}/{total}
-        </span>
-        <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: t.accent }}>
-          {"\u2013 mancano " + mancanti}
+  const dot = (status: "loading" | "ok" | "err") =>
+    status === "loading" ? "#F59E0B" : status === "ok" ? t.positive : t.negative;
+  return (
+    <div className="relative group">
+      <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
+           style={{ border: "1px solid " + t.border, background: t.card, minHeight: 30 }}>
+        {prog.ready ? (
+          <div style={{ width: 8, height: 8, borderRadius: 9999, background: t.positive }} />
+        ) : (
+          <div className="ea-spin" style={{ width: 12, height: 12, border: "2px solid " + t.border,
+                                             borderTopColor: t.accent }} />
+        )}
+        <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: prog.ready ? t.muted : t.text }}>
+          {prog.ready ? "Dati pronti"
+            : prog.err > 0 ? "Errori: " + prog.err
+            : "Caricamento " + prog.ok + "/" + prog.total + " (" + (prog.total - prog.ok - prog.err) + ")"}
         </span>
       </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
-         style={{ border: "1px solid " + t.border, background: t.card }}
-         title="Tutti i dati del periodo sono in cache: la navigazione e' istantanea">
-      <div style={{ width: 8, height: 8, borderRadius: 9999, background: t.positive }} />
-      <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: t.muted }}>
-        Dati pronti
-      </span>
+      {/* pannello al passaggio del mouse: stato di ogni singolo lavoro */}
+      <div className="hidden group-hover:block absolute right-0 top-full z-50 mt-1 w-60 py-2 rounded-xl"
+           style={{ background: t.surface, border: "1px solid " + t.border, boxShadow: t.shadow }}>
+        {prog.jobs.map((j) => (
+          <div key={j.id} className="flex items-center gap-2 px-3 py-1">
+            <div style={{ width: 8, height: 8, borderRadius: 9999, background: dot(j.status) }} />
+            <span className="text-[11px] font-medium flex-1 min-w-0 truncate" style={{ color: t.muted }} title={j.label}>
+              {j.label}
+            </span>
+            <span className="text-[10px] font-semibold whitespace-nowrap"
+                  style={{ color: j.status === "ok" ? t.positive : j.status === "err" ? t.negative : "#F59E0B" }}>
+              {j.status === "ok" ? "pronto" : j.status === "err" ? "errore" : "in corso"}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
