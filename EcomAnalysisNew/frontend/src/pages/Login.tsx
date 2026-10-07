@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../lib/auth";
 import { UnauthorizedError } from "../lib/api";
 import { useTheme } from "../components/ui";
@@ -156,6 +157,124 @@ export default function Login() {
               )}
             </div>
           )}
+        </div>
+        <p className="text-center text-[11px] mt-4" style={{ color: t.muted }}>
+          La chiave, l'account e le analisi restano sul tuo VPS.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* Gate 2FA obbligatorio: mostrata SOLO quando la sessione e' attiva ma non
+   esiste un fattore TOTP verificato. Stessa card del login, senza tabs e
+   senza via d'uscita: l'utente attiva il 2FA (QR + conferma codice) oppure
+   esce. Nessun dato del sito viene caricato o mostrato finche' resta qui. */
+
+export function ForcedMfa() {
+  const { t } = useTheme();
+  const { email, logout, clearMfaPending } = useAuth();
+  const [enroll, setEnroll] = useState<{ id: string; secret: string; uri: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [started, setStarted] = useState(false);
+
+  const inputStyle = {
+    background: t.card, color: t.text, border: "1px solid " + t.border,
+    borderRadius: 8, padding: "10px 12px", fontSize: 13, width: "100%",
+    outline: "none",
+  } as React.CSSProperties;
+
+  useEffect(() => {
+    let alive = true;
+    if (started) return;
+    setStarted(true);
+    setBusy(true);
+    import("../lib/supabase").then(async (sb) => {
+      try {
+        const e = await sb.enrollTotp();
+        if (alive) setEnroll(e);
+      } catch {
+        if (alive) setErr("Impossibile creare il fattore 2FA. Riprova piu' tardi o esci.");
+      } finally {
+        if (alive) setBusy(false);
+      }
+    });
+    return () => { alive = false; };
+  }, [started]);
+
+  const confirmCode = async () => {
+    if (!enroll || code.trim().length < 6) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const sb = await import("../lib/supabase");
+      await sb.confirmEnroll(enroll.id, code.trim());
+      clearMfaPending();
+    } catch {
+      setErr("Codice non valido. Riprova.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: t.bg }}>
+      <div className="w-full max-w-sm px-4">
+        <div className="rounded-xl px-6 py-8"
+             style={{ background: t.surface, border: "1px solid " + t.border, boxShadow: t.shadow }}>
+          <div className="flex items-center gap-2.5 mb-6">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-black"
+                 style={{ background: t.accentSoft, color: t.accent }}>EA</div>
+            <div>
+              <p className="text-base font-bold leading-tight">EcomAnalysis</p>
+              <p className="text-[11px]" style={{ color: t.muted }}>Retail Analytics</p>
+            </div>
+          </div>
+
+          <p className="text-sm font-bold mb-1">Attivazione 2FA obbligatoria</p>
+          <p className="text-xs mb-5" style={{ color: t.muted }}>
+            L'accesso al sito e' bloccato finche' non attivi l'autenticazione a due fattori
+            per l'account {email ?? "corrente"}.
+          </p>
+
+          {enroll ? (
+            <div>
+              <div className="p-3 rounded-lg mb-4 flex justify-center"
+                   style={{ background: "#FFFFFF", border: "1px solid " + t.border }}>
+                <QRCodeSVG value={enroll.uri} size={150} />
+              </div>
+              <p className="text-xs mb-2" style={{ color: t.muted }}>
+                Scansiona il QR con la tua app authenticator (Google Authenticator, Authy, 1Password...)
+                oppure inserisci il codice manuale, poi conferma con il codice a 6 cifre generato.
+              </p>
+              <p className="text-xs font-mono break-all mb-3" style={{ color: t.text }}>
+                Codice manuale: {enroll.secret}
+              </p>
+              <input type="text" inputMode="numeric" placeholder="000000" value={code} style={inputStyle} autoFocus
+                     onChange={(e) => setCode(e.target.value)}
+                     onKeyDown={(e) => { if (e.key === "Enter") confirmCode(); }} />
+              {err && <p className="text-xs font-semibold mt-2" style={{ color: t.negative }}>{err}</p>}
+              <button onClick={confirmCode} disabled={busy || code.trim().length < 6}
+                      className="w-full mt-4 py-2.5 rounded-lg text-sm font-bold"
+                      style={{ background: t.accent, color: "#FFFFFF", opacity: busy || code.trim().length < 6 ? 0.55 : 1 }}>
+                {busy ? "Verifica..." : "Conferma e attiva"}
+              </button>
+            </div>
+          ) : (
+            <div>
+              {err && <p className="text-xs font-semibold mb-3" style={{ color: t.negative }}>{err}</p>}
+              <p className="text-xs mb-4" style={{ color: t.muted }}>
+                {busy ? "Preparazione del fattore 2FA..." : "In attesa del fattore 2FA."}
+              </p>
+            </div>
+          )}
+
+          <button onClick={logout}
+                  className="w-full mt-5 py-2 rounded-lg text-xs font-semibold"
+                  style={{ border: "1px solid " + t.border, color: t.negative, background: t.card }}>
+            Esci e torna al login
+          </button>
         </div>
         <p className="text-center text-[11px] mt-4" style={{ color: t.muted }}>
           La chiave, l'account e le analisi restano sul tuo VPS.
