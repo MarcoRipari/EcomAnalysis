@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
 import { ThemeProvider, useTheme, LoadIndicator } from "./components/ui";
 import { useAuth, AuthProvider } from "./lib/auth";
 import { DataProvider, useProgress } from "./lib/store";
@@ -10,13 +10,14 @@ import Nazioni from "./pages/Nazioni";
 import TopArticoli from "./pages/TopArticoli";
 import Ordini from "./pages/Ordini";
 import Account from "./pages/Account";
-import Login from "./pages/Login";
+import Login, { ForcedMfa } from "./pages/Login";
 
 /* Shell ispirata a Berry/Material Admin. Il periodo e GLOBALE (default: anno
    fiscale 01/11 -> 31/10). Il caricamento dei dati del periodo parte UNA volta
    e continua in background anche cambiando pagina: l'indicatore nella barra
-   in alto (a sinistra del selettore periodo) mostra l'avanzamento. Per gli
-   utenti Supabase senza 2FA attiva compare il banner che porta all'Account. */
+   in alto (a sinistra del selettore periodo) mostra l'avanzamento. 2FA
+   obbligatoria per gli utenti Supabase: senza fattore TOTP verificato la
+   Root mostra il gate ForcedMfa e il sito resta completamente inaccessibile. */
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -65,28 +66,9 @@ function HeaderBar({ da, a, onOpen }: { da: string; a: string; onOpen: () => voi
   );
 }
 
-function MfaBanner() {
-  const { t } = useTheme();
-  const navigate = useNavigate();
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 mb-4 rounded-xl"
-         style={{ border: "1px solid " + t.accent, background: t.accentSoft }}>
-      <p className="text-xs font-semibold" style={{ color: t.text }}>
-        Attiva l'autenticazione a due fattori (2FA) per proteggere il tuo account: e' obbligatoria.
-      </p>
-      <button onClick={() => navigate("/account")}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold"
-              style={{ background: t.accent, color: "#FFFFFF" }}>
-        Attiva ora
-      </button>
-    </div>
-  );
-}
-
 function Shell() {
   const { mode, t, toggle } = useTheme();
-  const { me, email, logout, mfaPending } = useAuth();
-  const navigate = useNavigate();
+  const { me, email, logout } = useAuth();
   const location = useLocation();
   const def = periodoDefault();
   const [da, setDa] = useState(() => localStorage.getItem("ea_da") ?? def.da);
@@ -98,11 +80,6 @@ function Shell() {
   useEffect(() => { localStorage.setItem("ea_da", da); }, [da]);
   useEffect(() => { localStorage.setItem("ea_a", a); }, [a]);
   useEffect(() => { localStorage.setItem("ea_confronti", String(confronti)); }, [confronti]);
-
-  /* primo accesso senza 2FA: porta alla pagina Account per l'attivazione */
-  useEffect(() => {
-    if (mfaPending && location.pathname !== "/account") navigate("/account");
-  }, [mfaPending]);
 
   const inputStyle = {
     background: t.card, color: t.text, border: "1px solid " + t.border,
@@ -196,7 +173,6 @@ function Shell() {
           </div>
         )}
         <main className="flex-1 px-8 py-6">
-          {mfaPending && <MfaBanner />}
           <DataProvider da={da} a={a} confronti={confronti}>
             <Routes>
               <Route path="/" element={<Dashboard da={da} a={a} confronti={confronti} />} />
@@ -217,11 +193,14 @@ function Shell() {
 
 function Root() {
   const { t } = useTheme();
-  const { ready, authed } = useAuth();
+  const { ready, authed, mode, mfaPending } = useAuth();
   if (!ready) {
     return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: t.muted }}>Caricamento...</div>;
   }
   if (!authed) return <Login />;
+  /* gate 2FA: la Shell (e quindi i dati) resta inaccessibile finche' il
+     fattore TOTP non e' verificato */
+  if (mfaPending && mode === "sb") return <ForcedMfa />;
   return <Shell />;
 }
 
