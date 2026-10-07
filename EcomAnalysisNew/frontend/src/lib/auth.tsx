@@ -3,11 +3,12 @@ import { getApiKey, setApiKey, clearApiKey, onAuthChange, getMe, setApiToken, Un
 import * as sb from "./supabase";
 
 /* Autenticazione con DUE modalita':
-   - "key": chiave API ecm_... verificata contro /api/v1/me (come prima);
-   - "sb":  email + password su Supabase Auth con 2FA TOTP obbligatorio per
-            gli utenti che hanno un fattore verificato (MFA nativo Supabase).
-   La modalita' usata resta in localStorage ("ea_auth_mode"), il token utente
-   viene tenuto in memoria (mai nel localStorage). */
+   - "key": chiave API ecm_... verificata contro /api/v1/me;
+   - "sb":  email + password su Supabase Auth con 2FA TOTP.
+   Per gli utenti Supabase la 2FA e' OBBLIGATORIA: al primo accesso senza un
+   fattore TOTP verificato l'app segnala mfaPending e porta alla pagina
+   Account per l'attivazione. La modalita' resta in localStorage
+   ("ea_auth_mode"), il token utente solo in memoria. */
 
 export interface MeInfo {
   via: string;
@@ -23,17 +24,20 @@ interface AuthCtx {
   key: string;
   me: MeInfo | null;
   email: string | null;
+  mfaPending: boolean;
   loginWithKey: (k: string) => Promise<MeInfo>;
   loginStartEmail: (email: string, password: string) => Promise<{ needsCode: boolean; factorId?: string; challengeId?: string }>;
   loginVerifyCode: (factorId: string, challengeId: string, code: string) => Promise<void>;
+  clearMfaPending: () => void;
   logout: () => void;
 }
 
 const Ctx = createContext<AuthCtx>({
-  ready: false, authed: false, mode: null, key: "", me: null, email: null,
+  ready: false, authed: false, mode: null, key: "", me: null, email: null, mfaPending: false,
   loginWithKey: async () => { throw new Error("no provider"); },
   loginStartEmail: async () => { throw new Error("no provider"); },
   loginVerifyCode: async () => { throw new Error("no provider"); },
+  clearMfaPending: () => {},
   logout: () => {},
 });
 
@@ -46,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [key, setKey] = useState(getApiKey());
   const [me, setMe] = useState<MeInfo | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [mfaPending, setMfaPending] = useState(false);
   const unwatch = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -95,6 +100,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setMe({ via: r.via, nome: r.nome });
             setModeS("sb");
             setAuthed(true);
+            const factors = await sb.listVerifiedTotp();
+            setMfaPending(factors.length === 0);
           } else {
             localStorage.removeItem(MODE_STORAGE);
           }
@@ -122,6 +129,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setMe({ via: r.via, nome: r.nome });
     setModeS("sb");
     setAuthed(true);
+    const factors = await sb.listVerifiedTotp();
+    setMfaPending(factors.length === 0);
   };
 
   const loginWithKey = async (k: string): Promise<MeInfo> => {
@@ -134,6 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setModeS("key");
       setMe(info);
       setAuthed(true);
+      setMfaPending(false);
       return info;
     } catch (e) {
       setApiKey(prev);
@@ -157,6 +167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await adoptSb();
   };
 
+  const clearMfaPending = () => setMfaPending(false);
+
   const logout = () => {
     if (mode === "sb") {
       setApiToken(null);
@@ -168,10 +180,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setEmail(null);
     setAuthed(false);
     setModeS(null);
+    setMfaPending(false);
   };
 
   return (
-    <Ctx.Provider value={{ ready, authed, mode, key, me, email, loginWithKey, loginStartEmail, loginVerifyCode, logout }}>
+    <Ctx.Provider value={{ ready, authed, mode, key, me, email, mfaPending,
+                           loginWithKey, loginStartEmail, loginVerifyCode, clearMfaPending, logout }}>
       {children}
     </Ctx.Provider>
   );
