@@ -55,7 +55,9 @@ function HeaderBar({ da, a, onOpen }: { da: string; a: string; onOpen: () => voi
   const pill = da + " \u2192 " + a;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      {prog.pending > 0 && <LoadIndicator done={prog.done} total={prog.total} />}
+      {/* stato del caricamento SEMPRE visibile, a sinistra del periodo: prosegue
+          anche cambiando pagina e si azzera solo al cambio periodo */}
+      <LoadIndicator done={prog.done} total={prog.total} pending={prog.pending} />
       <div className="flex-1 min-w-0" />
       <button onClick={onOpen}
               className="px-3.5 py-2 rounded-lg text-xs font-semibold"
