@@ -1,50 +1,20 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { getReport, ReportResp, Tabella, UnauthorizedError } from "../lib/api";
-import { Panel, Section, DataTable, fmtEUR, SERIES, useTheme } from "../components/ui";
+import { useReport, ReportResp, Tabella } from "../lib/store-types";
+import { Panel, Section, DataTable, Loading, LoadErr, fmtEUR, SERIES, useTheme } from "../components/ui";
 
-/* Nazioni dal report tipo=nazioni: tabelle "KPI per nazione" (una per anno,
-   Global compresa) e "Share brand" per nazione e anno. Grafico = top nazioni
-   per fatturato netto, con nome colonna e colonna fatturato rilevate dai nomi. */
+/* Nazioni dal report tipo=nazioni (dati dalla cache unica): KPI per nazione
+   (una tabella per anno, Global compresa), grafico top nazioni per fatturato
+   e share brand raggruppati per nazione e anno. */
 
 export default function Nazioni({ da, a, confronti }: { da: string; a: string; confronti: number }) {
   const { t } = useTheme();
-  const [resp, setResp] = useState<ReportResp | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authErr, setAuthErr] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const r = useReport("nazioni", da, a, confronti);
+  if (r.loading) return <Loading />;
+  if (r.authErr) return <LoadErr auth />;
+  if (r.error) return <LoadErr auth={false} error={r.error} />;
 
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    setAuthErr(false);
-    setError(null);
-    getReport("nazioni", da, a, confronti)
-      .then((r) => { if (alive) { setResp(r); setLoading(false); } })
-      .catch((e) => {
-        if (!alive) return;
-        if (e instanceof UnauthorizedError) setAuthErr(true);
-        else setError(String(e.message ?? e));
-        setLoading(false);
-      });
-    return () => { alive = false; };
-  }, [da, a, confronti]);
-
-  if (loading) {
-    return <div className="py-16 text-center text-sm" style={{ color: t.muted }}>Caricamento...</div>;
-  }
-  if (authErr) {
-    return (
-      <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.text, background: t.card, boxShadow: t.shadow }}>
-        <p className="font-bold" style={{ color: t.negative }}>API key mancante o non valida</p>
-        <p className="mt-1.5 text-xs" style={{ color: t.muted }}>Imposta la chiave (ecm_...) nella sezione "API Key" della sidebar.</p>
-      </div>
-    );
-  }
-  if (error) {
-    return <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.negative }}>{error}</div>;
-  }
-
+  const resp: ReportResp | null = r.data ?? null;
   const tabelle = resp?.tabelle ?? [];
   const kpiTabs = tabelle.filter((x) => x.titolo.indexOf("KPI per nazione") >= 0);
   const shareTabs = tabelle.filter((x) => x.titolo.indexOf("Share brand") >= 0);
@@ -53,13 +23,13 @@ export default function Nazioni({ da, a, confronti }: { da: string; a: string; c
   const fattCol = cur?.colonne.find((c) => c.toLowerCase().indexOf("fatturato") >= 0);
   const chartRows = cur && nameCol && fattCol
     ? cur.dati
-        .map((r) => ({ name: String(r[nameCol] ?? ""), v: Number(r[fattCol]) || 0 }))
+        .map((row) => ({ name: String(row[nameCol] ?? ""), v: Number(row[fattCol]) || 0 }))
         .filter((x) => x.name.toUpperCase() !== "GLOBAL")
         .sort((x, y) => y.v - x.v)
         .slice(0, 8)
     : [];
 
-  const DASH = String.fromCharCode(8212); /* separatore dei titoli dell'API */
+  const DASH = String.fromCharCode(8212);
   type ShareAnno = { y: string; tb: Tabella };
   const gruppi: Array<{ nazione: string; anni: ShareAnno[] }> = [];
   for (const tb of shareTabs) {
