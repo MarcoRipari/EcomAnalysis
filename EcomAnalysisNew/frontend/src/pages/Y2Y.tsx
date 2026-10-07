@@ -1,51 +1,21 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
-import { getMensileReport, ReportResp, UnauthorizedError } from "../lib/api";
-import { Section, KpiCard, DataTable, fmtEUR, fmtInt, fmtVar, fmtPct, SERIES, useTheme } from "../components/ui";
+import { useReport } from "../lib/store";
+import { Section, KpiCard, DataTable, Loading, LoadErr, fmtEUR, fmtInt, fmtVar, fmtPct, SERIES, useTheme } from "../components/ui";
 
 /* Pagina Y2Y: un solo endpoint (report tipo=mensile) con cui costruisce KPI,
-   grafico mese-per-mese a finestra mobile e tabelle stagioni SS/FW. Tutto guidato
-   dai nomi colonna dell API: nessun valore cablato. */
+   grafico mese-per-mese a finestra mobile e tabelle stagioni SS/FW. I dati
+   arrivano dalla cache unica: nessun fetch diretto. */
 
 export default function Y2Y({ da, a, confronti }: { da: string; a: string; confronti: number }) {
   const { t } = useTheme();
-  const [resp, setResp] = useState<ReportResp | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authErr, setAuthErr] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    setAuthErr(false);
-    setError(null);
-    getMensileReport(da, a, confronti)
-      .then((r) => { if (alive) { setResp(r); setLoading(false); } })
-      .catch((e) => {
-        if (!alive) return;
-        if (e instanceof UnauthorizedError) setAuthErr(true);
-        else setError(String(e.message ?? e));
-        setLoading(false);
-      });
-    return () => { alive = false; };
-  }, [da, a, confronti]);
-
-  if (loading) {
-    return <div className="py-16 text-center text-sm" style={{ color: t.muted }}>Caricamento...</div>;
-  }
-  if (authErr) {
-    return (
-      <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.text, background: t.card }}>
-        <p className="font-bold" style={{ color: t.negative }}>API key mancante o non valida</p>
-        <p className="mt-1.5 text-xs" style={{ color: t.muted }}>Imposta la chiave (prefisso ecm_) nella sezione "API Key" della sidebar.</p>
-      </div>
-    );
-  }
-  if (error) {
-    return <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.negative }}>{error}</div>;
-  }
+  const m = useReport("mensile", da, a, confronti);
+  if (m.loading) return <Loading />;
+  if (m.authErr) return <LoadErr auth />;
+  if (m.error) return <LoadErr auth={false} error={m.error} />;
+  const resp = m.data ?? null;
 
   const tMesi = resp?.tabelle?.find((x) => x.titolo.toLowerCase().includes("mese")) ?? resp?.tabelle?.[0];
   const tStag = resp?.tabelle?.find((x) => x.titolo.toLowerCase().includes("stagioni")) ?? resp?.tabelle?.[1];
