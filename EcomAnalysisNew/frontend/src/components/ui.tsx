@@ -1,8 +1,10 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 
-/* Design system EcomAnalysis: token dark/light, formattatori italiani,
-   componenti base. Layout ispirato a Berry/Material Admin: sidebar con voci
-   tonde, header bar, card con ombra soffusa e radius 12. */
+/* Design system EcomAnalysis: token dark/light (LIGHT e' il default),
+   formattatori italiani, componenti base. Layout ispirato a Berry free react
+   admin (codedthemes) e react-material-admin (flatlogic): sidebar con voci
+   tonde, header bar, card con ombra soffusa e radius 12, stat card con
+   truncation. Nessun codice copiato dai template: solo il linguaggio visivo. */
 
 export interface ThemeTokens {
   bg: string; surface: string; card: string; border: string;
@@ -28,10 +30,12 @@ const SERIES = ["#14B8A6", "#3B82F6", "#F59E0B"];
 export { SERIES };
 
 interface ThemeCtx { mode: "dark" | "light"; t: ThemeTokens; toggle: () => void; }
-const ThemeContext = createContext<ThemeCtx>({ mode: "dark", t: DARK, toggle: () => {} });
+const ThemeContext = createContext<ThemeCtx>({ mode: "light", t: LIGHT, toggle: () => {} });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<"dark" | "light">("dark");
+  const [mode, setMode] = useState<"dark" | "light">(() =>
+    localStorage.getItem("ea_theme") === "dark" ? "dark" : "light");
+  useEffect(() => { localStorage.setItem("ea_theme", mode); }, [mode]);
   const toggle = () => setMode(mode === "dark" ? "light" : "dark");
   return (
     <ThemeContext.Provider value={{ mode, t: mode === "dark" ? DARK : LIGHT, toggle }}>
@@ -77,10 +81,11 @@ export function fmtCell(col: string, v: unknown): string {
 }
 
 /* ---------- componenti ---------- */
-export function Panel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+export function Panel({ children, style, className }: { children: React.ReactNode; style?: React.CSSProperties; className?: string }) {
   const { t } = useTheme();
   return (
-    <div className="rounded-xl" style={{ background: t.surface, border: "1px solid " + t.border, boxShadow: t.shadow, ...style }}>
+    <div className={"rounded-xl " + (className ?? "")}
+         style={{ background: t.surface, border: "1px solid " + t.border, boxShadow: t.shadow, ...style }}>
       {children}
     </div>
   );
@@ -104,14 +109,33 @@ export function Section({ title, caption, children }: { title: string; caption?:
   );
 }
 
+export function Loading() {
+  const { t } = useTheme();
+  return <div className="py-16 text-center text-sm" style={{ color: t.muted }}>Caricamento...</div>;
+}
+
+export function LoadErr({ auth, error }: { auth: boolean; error?: string | null }) {
+  const { t } = useTheme();
+  return (
+    <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.text, background: t.card, boxShadow: t.shadow }}>
+      <p className="font-bold" style={{ color: t.negative }}>{auth ? "Autenticazione non valida" : "Errore di caricamento"}</p>
+      <p className="mt-1.5 text-xs" style={{ color: t.muted }}>
+        {auth ? "Sessione scaduta o credenziali non valide: esci e accedi di nuovo." : (error ?? "Riprova piu' tardi.")}
+      </p>
+    </div>
+  );
+}
+
 export function KpiCard({ label, value, delta, deltaGood }: {
   label: string; value: string; delta?: string; deltaGood?: boolean;
 }) {
   const { t } = useTheme();
   return (
     <Panel className="flex-1 min-w-0 px-4 py-3.5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.06em] whitespace-nowrap" style={{ color: t.muted }}>{label}</p>
-      <p className="text-2xl font-extrabold mt-1 tabular-nums" style={{ color: t.text }}>{value}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.06em] truncate" title={label}
+         style={{ color: t.muted }}>{label}</p>
+      <p className="text-2xl font-extrabold mt-1 tabular-nums truncate" title={value}
+         style={{ color: t.text }}>{value}</p>
       {delta !== undefined && (
         <p className="text-xs font-semibold mt-1" style={{ color: deltaGood ? t.positive : t.negative }}>{delta}</p>
       )}
@@ -134,9 +158,8 @@ function ImageModal({ src, title, onClose }: { src: string; title: string; onClo
   );
 }
 
-/* Tabella Top Articoli: thumbnail tonda a sinistra della riga, click = zoom.
-   Colonna immagine rilevata per nome (foto/image/url); le altre celle restano
-   formattate come DataTable. */
+/* Tabella Top Articoli: thumbnail a sinistra della riga, click = zoom.
+   Colonna immagine rilevata per nome; titolo troncato con tooltip. */
 export function TopArticoliTable({ columns, rows }: { columns: string[]; rows: Array<Record<string, unknown>> }) {
   const { t } = useTheme();
   const [zoom, setZoom] = useState<{ src: string; title: string } | null>(null);
@@ -182,9 +205,14 @@ export function TopArticoliTable({ columns, rows }: { columns: string[]; rows: A
                     {cols.map((c) => {
                       const raw = r[c];
                       const neg = isVarCol(c) && typeof raw === "number" && raw < 0;
+                      const isTitle = c === titleCol;
                       return (
                         <td key={c} className="px-4 py-2.5 whitespace-nowrap tabular-nums"
-                            style={{ color: neg ? t.negative : t.text }}>{fmtCell(c, raw)}</td>
+                            title={isTitle ? String(raw) : undefined}
+                            style={{ color: neg ? t.negative : t.text,
+                                     ...(isTitle ? { maxWidth: 340, overflow: "hidden", textOverflow: "ellipsis" } : null) }}>
+                          {fmtCell(c, raw)}
+                        </td>
                       );
                     })}
                   </tr>
@@ -223,12 +251,17 @@ export function DataTable({ columns, rows }: { columns: string[]; rows: Array<Re
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} style={{ borderTop: i === 0 ? "none" : "1px solid " + t.border }}>
-                {columns.map((c) => {
+                {columns.map((c, ci) => {
                   const raw = r[c];
                   const neg = isVarCol(c) && typeof raw === "number" && raw < 0;
+                  const long = ci === 0 && typeof raw === "string" && raw.length > 36;
                   return (
                     <td key={c} className="px-4 py-2.5 whitespace-nowrap tabular-nums"
-                        style={{ color: neg ? t.negative : t.text }}>{fmtCell(c, raw)}</td>
+                        title={long ? String(raw) : undefined}
+                        style={{ color: neg ? t.negative : t.text,
+                                 ...(long ? { maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" } : null) }}>
+                      {fmtCell(c, raw)}
+                    </td>
                   );
                 })}
               </tr>
