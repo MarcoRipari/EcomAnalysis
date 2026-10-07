@@ -1,58 +1,26 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
-import { getMensileReport, getDashboardReport, ReportResp, UnauthorizedError } from "../lib/api";
+import { useReport } from "../lib/store";
 import {
-  Panel, Section, KpiCard, DataTable, TopArticoliTable,
+  Panel, Section, KpiCard, DataTable, TopArticoliTable, Loading, LoadErr,
   fmtEUR, fmtInt, fmtPct, fmtVar, SERIES, useTheme,
 } from "../components/ui";
 
 /* Dashboard del periodo (default: anno fiscale 01/11 -> 31/10 scelto nella shell).
-   KPI + andamento mensile dal report tipo=mensile; tabelle e classifiche dal
-   report tipo=dashboard; canali (Diretti/Zalando) letti dalla tabella Marketplace. */
+   I dati arrivano dalla cache unica (useReport): nessun fetch diretto. */
 
 export default function Dashboard({ da, a, confronti }: { da: string; a: string; confronti: number }) {
   const { t } = useTheme();
-  const [mensile, setMensile] = useState<ReportResp | null>(null);
-  const [dash, setDash] = useState<ReportResp | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authErr, setAuthErr] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const m = useReport("mensile", da, a, confronti);
+  const d = useReport("dashboard", da, a, confronti, { top: 100 });
+  if (m.loading || d.loading) return <Loading />;
+  if (m.authErr || d.authErr) return <LoadErr auth />;
+  if (m.error || d.error) return <LoadErr auth={false} error={m.error ?? d.error} />;
 
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    setAuthErr(false);
-    setError(null);
-    Promise.all([
-      getMensileReport(da, a, confronti),
-      getDashboardReport(da, a, confronti),
-    ])
-      .then(([m, d]) => { if (alive) { setMensile(m); setDash(d); setLoading(false); } })
-      .catch((e) => {
-        if (!alive) return;
-        if (e instanceof UnauthorizedError) setAuthErr(true);
-        else setError(String(e.message ?? e));
-        setLoading(false);
-      });
-    return () => { alive = false; };
-  }, [da, a, confronti]);
-
-  if (loading) {
-    return <div className="py-16 text-center text-sm" style={{ color: t.muted }}>Caricamento...</div>;
-  }
-  if (authErr) {
-    return (
-      <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.text, background: t.card, boxShadow: t.shadow }}>
-        <p className="font-bold" style={{ color: t.negative }}>API key mancante o non valida</p>
-        <p className="mt-1.5 text-xs" style={{ color: t.muted }}>Imposta la chiave (ecm_...) nella sezione "API Key" della sidebar.</p>
-      </div>
-    );
-  }
-  if (error) {
-    return <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.negative }}>{error}</div>;
-  }
+  const mensile = m.data ?? null;
+  const dash = d.data ?? null;
 
   const tMesi = mensile?.tabelle?.find((x) => x.titolo.toLowerCase().includes("mese")) ?? mensile?.tabelle?.[0];
   const rows = tMesi?.dati ?? [];
@@ -69,33 +37,29 @@ export default function Dashboard({ da, a, confronti }: { da: string; a: string;
   const totOrdini = sum(ordiniCol);
   const scontrino = totOrdini !== 0 ? sum(cur) / totOrdini : 0;
 
-  // tabelle del report dashboard (current year: i titoli iniziano con la sezione corrente)
   const tab = (kw: string) => dash?.tabelle?.find((x) => x.titolo.toLowerCase().includes(kw));
   const tMkp = tab("marketplace");
   const tNaz = tab("nazioni");
   const tCol = tab("collezioni");
   const tTop = tab("top articoli");
 
-  // canali dalla tabella marketplace
   const canale = (kw: string) =>
     tMkp?.dati.find((r) => Object.values(r).some((v) => String(v).toUpperCase().includes(kw)));
   const mkpFattCol = tMkp?.colonne.find((c) => c.toLowerCase().includes("fatturato"));
-  const mkpNomeCol = tMkp?.colonne[0];
   const dir = canale("DIRETT");
   const zal = canale("ZALANDO");
   const val = (r: Record<string, unknown> | undefined, col?: string) =>
     r && col ? Number(r[col]) || 0 : 0;
 
-  // top bar chart: marketplace e nazioni ordinati per fatturato (max 6)
   const topBar = (tb: typeof tMkp, n = 6) => {
-    if (!tb || !mkpFattCol) return { rows: [], name: "", fatt: "" };
+    if (!tb) return { rows: [] as Array<{ name: string; fatt: number }> };
     const nameCol = tb.colonne[0];
     const fattCol = tb.colonne.find((c) => c.toLowerCase().includes("fatturato"));
     const out = tb.dati
       .map((r) => ({ name: String(r[nameCol] ?? ""), fatt: Number(r[fattCol ?? ""]) || 0 }))
       .sort((x, y) => y.fatt - x.fatt)
       .slice(0, n);
-    return { rows: out, name: nameCol, fatt: fattCol ?? "" };
+    return { rows: out };
   };
   const topMkp = topBar(tMkp);
   const topNaz = topBar(tNaz);
