@@ -170,7 +170,10 @@ export default function Login() {
 /* Gate 2FA obbligatorio: mostrata SOLO quando la sessione e' attiva ma non
    esiste un fattore TOTP verificato. Stessa card del login, senza tabs e
    senza via d'uscita: l'utente attiva il 2FA (QR + conferma codice) oppure
-   esce. Nessun dato del sito viene caricato o mostrato finche' resta qui. */
+   esce. Nessun dato del sito viene caricato o mostrato finche' resta qui.
+   L'enroll ha timeout esplicito, mostra l'errore esatto e ha un bottone
+   Riprova (con pulizia dei fattori non verificati rimasti da tentativi
+   precedenti). */
 
 export function ForcedMfa() {
   const { t } = useTheme();
@@ -179,7 +182,7 @@ export function ForcedMfa() {
   const [code, setCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [started, setStarted] = useState(false);
+  const [attempts, setAttempts] = useState(0);
 
   const inputStyle = {
     background: t.card, color: t.text, border: "1px solid " + t.border,
@@ -189,22 +192,26 @@ export function ForcedMfa() {
 
   useEffect(() => {
     let alive = true;
-    if (started) return;
-    setStarted(true);
     setBusy(true);
+    setErr(null);
     (async () => {
       try {
-        const e = await sb.enrollTotp();
+        /* timeout: se la chiamata a Supabase non risponde entro 20s
+           mostriamo l'errore invece di restare appesi */
+        const timeout = new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error("Nessuna risposta da Supabase entro 20 secondi (timeout).")), 20000));
+        const e = await Promise.race([sb.enrollTotpClean(), timeout]);
         if (alive) setEnroll(e);
-      } catch (x) {
-        if (alive) setErr("Impossibile creare il fattore 2FA: " +
-          String((x as Error)?.message ?? (x as { code?: string })?.code ?? "errore sconosciuto"));
+      } catch (x: unknown) {
+        console.error("enroll 2FA fallito:", x);
+        const m = (x as Error)?.message ?? (x as { code?: string })?.code ?? "errore sconosciuto";
+        if (alive) setErr("Impossibile creare il fattore 2FA: " + String(m));
       } finally {
         if (alive) setBusy(false);
       }
     })();
     return () => { alive = false; };
-  }, [started]);
+  }, [attempts]);
 
   const confirmCode = async () => {
     if (!enroll || code.trim().length < 6) return;
@@ -264,10 +271,21 @@ export function ForcedMfa() {
             </div>
           ) : (
             <div>
-              {err && <p className="text-xs font-semibold mb-3" style={{ color: t.negative }}>{err}</p>}
-              <p className="text-xs mb-4" style={{ color: t.muted }}>
-                {busy ? "Preparazione del fattore 2FA..." : "In attesa del fattore 2FA."}
-              </p>
+              {err && (
+                <div className="mb-3">
+                  <p className="text-xs font-semibold" style={{ color: t.negative }}>{err}</p>
+                  <button onClick={() => setAttempts((n) => n + 1)} disabled={busy}
+                          className="mt-2 px-3 py-1.5 rounded-lg text-xs font-bold"
+                          style={{ background: t.accent, color: "#FFFFFF", opacity: busy ? 0.55 : 1 }}>
+                    Riprova
+                  </button>
+                </div>
+              )}
+              {!err && (
+                <p className="text-xs mb-4" style={{ color: t.muted }}>
+                  {busy ? "Preparazione del fattore 2FA..." : "In attesa del fattore 2FA."}
+                </p>
+              )}
             </div>
           )}
 
