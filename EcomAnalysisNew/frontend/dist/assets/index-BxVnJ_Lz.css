@@ -1,0 +1,1 @@
+:root{--font-ui: Inter, "Segoe UI", system-ui, -apple-system, sans-serif}*{box-sizing:border-box}body{margin:0;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}input,select,button{font-family:inherit}input[type=date]{color-scheme:dark}:root[data-theme=light] input[type=date]{color-scheme:light}
