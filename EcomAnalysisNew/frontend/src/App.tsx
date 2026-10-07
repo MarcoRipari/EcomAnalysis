@@ -49,19 +49,19 @@ function periodoDefault(): { da: string; a: string } {
   return { da: chiusura - 1 + "-11-01", a: chiusura + "-10-31" };
 }
 
-function HeaderBar({ da, a, onOpen }: { da: string; a: string; onOpen: () => void }) {
+function HeaderBar({ da, a, confronti, onOpen }: { da: string; a: string; confronti: number; onOpen: () => void }) {
   const { t } = useTheme();
-  const prog = useProgress();
+  /* useProgress legge la STESSA mappa delle pagine: impossibile "Dati pronti"
+     con pagine ancora in caricamento */
+  const prog = useProgress(da, a, confronti);
   const pill = da + " \u2192 " + a;
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      {/* stato del caricamento SEMPRE visibile, a sinistra del periodo: prosegue
-          anche cambiando pagina e si azzera solo al cambio periodo */}
-      <LoadIndicator done={prog.done} total={prog.total} pending={prog.pending} />
-      <div className="flex-1 min-w-0" />
+    <div className="flex items-center justify-end gap-2">
+      {/* indicatore di stato: stessa riga, stessa altezza della pill periodo */}
+      <LoadIndicator prog={prog} />
       <button onClick={onOpen}
-              className="px-3.5 py-2 rounded-lg text-xs font-semibold"
-              style={{ border: "1px solid " + t.border, color: t.text, background: t.card }}>
+              className="px-3.5 py-1.5 rounded-lg text-xs font-semibold"
+              style={{ border: "1px solid " + t.border, color: t.text, background: t.card, minHeight: 30 }}>
         {pill} {"\u25BE"}
       </button>
     </div>
@@ -175,21 +175,20 @@ function Shell() {
           </div>
         )}
         <main className="flex-1 px-8 py-6">
-          <DataProvider da={da} a={a} confronti={confronti}>
-            <Routes>
-              <Route path="/" element={<Dashboard da={da} a={a} confronti={confronti} />} />
-              <Route path="/y2y" element={<Y2Y da={da} a={a} confronti={confronti} />} />
-              <Route path="/collezioni" element={<Collezioni da={da} a={a} confronti={confronti} />} />
-              <Route path="/nazioni" element={<Nazioni da={da} a={a} confronti={confronti} />} />
-              <Route path="/articoli" element={<TopArticoli da={da} a={a} confronti={confronti} />} />
-              <Route path="/ordini" element={<Ordini da={da} a={a} />} />
-              <Route path="/account" element={<Account />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </DataProvider>
+          <Routes>
+            <Route path="/" element={<Dashboard da={da} a={a} confronti={confronti} />} />
+            <Route path="/y2y" element={<Y2Y da={da} a={a} confronti={confronti} />} />
+            <Route path="/collezioni" element={<Collezioni da={da} a={a} confronti={confronti} />} />
+            <Route path="/nazioni" element={<Nazioni da={da} a={a} confronti={confronti} />} />
+            <Route path="/articoli" element={<TopArticoli da={da} a={a} confronti={confronti} />} />
+            <Route path="/ordini" element={<Ordini da={da} a={a} />} />
+            <Route path="/account" element={<Account />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
       </div>
     </div>
+    </DataProvider>
   );
 }
 
