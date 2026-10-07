@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
 import { ThemeProvider, useTheme } from "./components/ui";
 import { useAuth, AuthProvider } from "./lib/auth";
+import { DataProvider } from "./lib/store";
 import Dashboard from "./pages/Dashboard";
 import Y2Y from "./pages/Y2Y";
 import Collezioni from "./pages/Collezioni";
@@ -13,9 +14,8 @@ import Login from "./pages/Login";
 
 /* Shell ispirata a Berry/Material Admin. Il periodo e GLOBALE: di default e
    l anno fiscale corrente (01/11 -> 31/10), modificabile da un selettore
-   richiudibile nell header (semi-nascosto). Pilota tutte le pagine.
-   Accesso: chiave API verificata via /api/v1/me (AuthProvider); senza
-   chiave valida si vede solo la schermata di login. */
+   richiudibile nell header (semi-nascosto). I dati si caricano UNA volta per
+   periodo (DataProvider) e tutte le pagine navigano senza attese. */
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -34,7 +34,7 @@ const TITOLI: Record<string, { title: string; sub: string }> = {
   "/nazioni": { title: "Nazioni", sub: "KPI per nazione e share brand per mercato" },
   "/articoli": { title: "Top Articoli", sub: "Classifica articoli del periodo con foto" },
   "/ordini": { title: "Ordini", sub: "Ordini aggregati per dimensione di analisi" },
-  "/account": { title: "Account", sub: "Chiave API, copertura dati e ultimi caricamenti" },
+  "/account": { title: "Account", sub: "Sessione, 2FA, copertura dati e ultimi caricamenti" },
 };
 
 function annoFiscaleCorrente(): number {
@@ -49,7 +49,7 @@ function periodoDefault(): { da: string; a: string } {
 
 function Shell() {
   const { mode, t, toggle } = useTheme();
-  const { me, logout } = useAuth();
+  const { me, email, logout } = useAuth();
   const location = useLocation();
   const def = periodoDefault();
   const [da, setDa] = useState(() => localStorage.getItem("ea_da") ?? def.da);
@@ -69,6 +69,7 @@ function Shell() {
 
   const page = TITOLI[location.pathname] ?? TITOLI["/"];
   const pill = da + " \u2192 " + a;
+  const utente = me?.nome ?? email ?? "Utente";
 
   return (
     <div className="flex min-h-screen" style={{ background: t.bg, color: t.text }}>
@@ -99,9 +100,9 @@ function Shell() {
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold shrink-0"
                  style={{ background: t.accentSoft, color: t.accent }}>
-              {(me?.nome ?? "?").slice(0, 1).toUpperCase()}
+              {utente.slice(0, 1).toUpperCase()}
             </div>
-            <p className="text-xs font-semibold truncate flex-1 min-w-0">{me?.nome ?? "Utente"}</p>
+            <p className="text-xs font-semibold truncate flex-1 min-w-0" title={utente}>{utente}</p>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[11px]" style={{ color: t.muted }}>Tema</span>
@@ -159,16 +160,18 @@ function Shell() {
           </div>
         )}
         <main className="flex-1 px-8 py-6">
-          <Routes>
-            <Route path="/" element={<Dashboard da={da} a={a} confronti={confronti} />} />
-            <Route path="/y2y" element={<Y2Y da={da} a={a} confronti={confronti} />} />
-            <Route path="/collezioni" element={<Collezioni da={da} a={a} confronti={confronti} />} />
-            <Route path="/nazioni" element={<Nazioni da={da} a={a} confronti={confronti} />} />
-            <Route path="/articoli" element={<TopArticoli da={da} a={a} confronti={confronti} />} />
-            <Route path="/ordini" element={<Ordini da={da} a={a} />} />
-            <Route path="/account" element={<Account />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <DataProvider da={da} a={a} confronti={confronti}>
+            <Routes>
+              <Route path="/" element={<Dashboard da={da} a={a} confronti={confronti} />} />
+              <Route path="/y2y" element={<Y2Y da={da} a={a} confronti={confronti} />} />
+              <Route path="/collezioni" element={<Collezioni da={da} a={a} confronti={confronti} />} />
+              <Route path="/nazioni" element={<Nazioni da={da} a={a} confronti={confronti} />} />
+              <Route path="/articoli" element={<TopArticoli da={da} a={a} confronti={confronti} />} />
+              <Route path="/ordini" element={<Ordini da={da} a={a} />} />
+              <Route path="/account" element={<Account />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </DataProvider>
         </main>
       </div>
     </div>
