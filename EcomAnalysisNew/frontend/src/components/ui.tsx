@@ -132,18 +132,36 @@ export function LoadErr({ auth, error, onRetry }: { auth: boolean; error?: strin
   );
 }
 
-/* Indicatore di caricamento del periodo per la barra in alto: spinner +
-   conteggio. Da usare accanto al selettore del periodo. */
-export function LoadIndicator({ done, total }: { done: number; total: number }) {
+/* Indicatore di stato del caricamento del periodo per la barra in alto.
+   SEMPRE visibile accanto al selettore del periodo:
+   - in caricamento: spinner + "Caricamento fatti/totale (restanti)";
+   - coda completata: pallino verde + "Dati pronti". */
+export function LoadIndicator({ done, total, pending }: { done: number; total: number; pending: number }) {
   const { t } = useTheme();
+  const mancanti = Math.max(total - done, 0);
+  if (pending > 0 || done < total) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+           style={{ border: "1px solid " + t.border, background: t.card }}
+           title="Caricamento dei dati del periodo in corso: resta anche cambiando pagina">
+        <div className="ea-spin" style={{ width: 13, height: 13, border: "2px solid " + t.border,
+                                           borderTopColor: t.accent }} />
+        <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: t.muted }}>
+          Caricamento {done}/{total}
+        </span>
+        <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: t.accent }}>
+          {"\u2013 mancano " + mancanti}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
          style={{ border: "1px solid " + t.border, background: t.card }}
-         title="Caricamento dei dati del periodo in corso">
-      <div className="ea-spin" style={{ width: 13, height: 13, border: "2px solid " + t.border,
-                                         borderTopColor: t.accent }} />
+         title="Tutti i dati del periodo sono in cache: la navigazione e' istantanea">
+      <div style={{ width: 8, height: 8, borderRadius: 9999, background: t.positive }} />
       <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: t.muted }}>
-        Caricamento {done}/{total}
+        Dati pronti
       </span>
     </div>
   );
