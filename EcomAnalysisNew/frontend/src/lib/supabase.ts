@@ -81,12 +81,24 @@ export async function enrollTotpClean(): Promise<{ id: string; secret: string; u
 }
 
 /* Attivazione 2FA: crea il fattore TOTP e restituisce segreto + URI otpauth
-   da inserire a mano nell'app authenticator (o da mostrare come QR). */
+   da mostrare come QR o da inserire a mano. L'URI e' SEMPRE costruito da noi
+   dal secret: in alcune risposte il campo qr_code di Supabase non e' il breve
+   URI otpauth ma un payload molto piu' lungo (es. SVG), e qrcode.react
+   crasha con "RangeError: Data too long" provando a codificarlo in un QR. */
 export async function enrollTotp(): Promise<{ id: string; secret: string; uri: string }> {
   const c = await ensureClient();
   const { data, error } = await c.auth.mfa.enroll({ factorType: "totp" });
   if (error) throw error;
-  return { id: data.id, secret: data.totp.secret, uri: data.totp.qr_code };
+  const secret = data.totp.secret;
+  let label = "utente";
+  try {
+    const { data: u } = await c.auth.getUser();
+    if (u?.user?.email) label = u.user.email;
+  } catch { /* email facoltativa nell'URI */ }
+  const uri = "otpauth://totp/EcomAnalysis:" + encodeURIComponent(label) +
+              "?secret=" + encodeURIComponent(secret) +
+              "&issuer=" + encodeURIComponent("EcomAnalysis");
+  return { id: data.id, secret, uri };
 }
 
 /* Conferma dell'attivazione: verifica il primo codice generato dall'app. */
