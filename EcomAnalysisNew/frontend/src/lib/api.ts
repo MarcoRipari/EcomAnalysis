@@ -1,8 +1,6 @@
-// Client API EcomAnalysis: stessa FastAPI di Streamlit, auth via X-API-Key.
+// Client API EcomAnalysis: stessa FastAPI, autenticazione X-API-Key o token
+// utente Supabase (Authorization: Bearer, gestito dall AuthProvider).
 // Il JSON resta numerico con nomi colonna gia rinominati (scelta di progetto).
-// La chiave e' gestita dall AuthProvider (src/lib/auth.tsx): qui si legge
-// localStorage (fonte di verita') e si ascolta l evento "ea_auth" per
-// riflettere subito login/logout senza ricaricare la pagina.
 
 export interface Tabella {
   titolo: string;
@@ -45,17 +43,41 @@ export function onAuthChange(cb: () => void): () => void {
 
 export class UnauthorizedError extends Error {}
 
+/* Token utente Supabase (modalita' email+password): lo imposta l'AuthProvider;
+   se presente vince sulla chiave API. */
+let authToken: string | null = null;
+
+export function setApiToken(tk: string | null): void {
+  authToken = tk;
+}
+
 export async function apiGet<T>(path: string, params: Record<string, string | number>): Promise<T> {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) q.set(k, String(v));
   const url = "/api" + path + "?" + q.toString();
   const headers: Record<string, string> = {};
-  const key = getApiKey();
-  if (key) headers["X-API-Key"] = key;
+  if (authToken) headers["Authorization"] = "Bearer " + authToken;
+  else {
+    const key = getApiKey();
+    if (key) headers["X-API-Key"] = key;
+  }
   const r = await fetch(url, { headers });
-  if (r.status === 401 || r.status === 403) throw new UnauthorizedError("API key mancante o non valida");
+  if (r.status === 401 || r.status === 403) throw new UnauthorizedError("Autenticazione mancante o non valida");
   if (!r.ok) throw new Error("Errore API " + r.status);
   return (await r.json()) as T;
+}
+
+export interface ConfigResp {
+  ok: boolean;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+}
+
+/* Configurazione pubblica della SPA (nessuna autenticazione richiesta). */
+export async function getConfig(): Promise<ConfigResp> {
+  const r = await fetch("/api/v1/config");
+  if (!r.ok) throw new Error("Errore API " + r.status);
+  return (await r.json()) as ConfigResp;
 }
 
 // Report "Mese per Mese": mesi del periodo scelto + stagioni SS/FW + confronti anno-1/anno-2.
