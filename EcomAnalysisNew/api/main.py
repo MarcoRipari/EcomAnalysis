@@ -865,6 +865,18 @@ def report(
 
 
 # ---------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------
+# Configurazione pubblica per la SPA (nessun segreto: l'anon key e' pubblica)
+# ---------------------------------------------------------------------------------------
+@app.get("/api/v1/config")
+def config_pubblica() -> dict:
+    """Configurazione per il client React: URL del progetto Supabase e anon key.
+
+    L'anon key e' pubblica per progettazione (non e' un segreto); l'accesso ai
+    dati resta protetto da X-API-Key o dal token utente (Authorization: Bearer)."""
+    return {"ok": True, "supabaseUrl": SUPABASE_URL, "supabaseAnonKey": SUPABASE_ANON_KEY}
+
+
 # Frontend SPA (build React, senza nginx): la stessa uvicorn serve anche le statiche
 # ---------------------------------------------------------------------------------------
 # Il progetto frontend puo' vivere in una directory qualsiasi, anche fuori dal repo:
