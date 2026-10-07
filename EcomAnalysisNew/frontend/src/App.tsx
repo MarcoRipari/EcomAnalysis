@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
 import { ThemeProvider, useTheme } from "./components/ui";
-import { useAuth } from "./lib/auth";
-import { clearApiKey } from "./lib/api";
+import { useAuth, AuthProvider } from "./lib/auth";
 import Dashboard from "./pages/Dashboard";
 import Y2Y from "./pages/Y2Y";
 import Collezioni from "./pages/Collezioni";
