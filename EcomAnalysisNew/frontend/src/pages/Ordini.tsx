@@ -1,12 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { getVenditeGroup, VenditeResp, UnauthorizedError } from "../lib/api";
-import { Panel, Section, KpiCard, DataTable, fmtEUR, fmtInt, SERIES, useTheme } from "../components/ui";
+import { useVendite } from "../lib/store";
+import { Panel, Section, KpiCard, DataTable, Loading, LoadErr, fmtEUR, fmtInt, SERIES, useTheme } from "../components/ui";
 
-/* Ordini del periodo aggregati per dimensione (vendite level=group):
-   marketplace, nazione, brand, genere, taglia o acquirente. Ordini, righe,
-   paia e fatturato per gruppo, con grafico e tabella guidati dai nomi
-   colonna della risposta. */
+/* Ordini del periodo aggregati per dimensione (vendite level=group), dati
+   dalla cache unica: il cambio dimensione non rifetcha le altre pagine. */
 
 const GRUPPI = [
   { v: "mkp", label: "Marketplace" },
@@ -20,46 +18,15 @@ const GRUPPI = [
 export default function Ordini({ da, a }: { da: string; a: string }) {
   const { t } = useTheme();
   const [group, setGroup] = useState("mkp");
-  const [resp, setResp] = useState<VenditeResp | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authErr, setAuthErr] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const r = useVendite(da, a, group);
+  if (r.loading) return <Loading />;
+  if (r.authErr) return <LoadErr auth />;
+  if (r.error) return <LoadErr auth={false} error={r.error} />;
 
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    setAuthErr(false);
-    setError(null);
-    getVenditeGroup(da, a, group)
-      .then((r) => { if (alive) { setResp(r); setLoading(false); } })
-      .catch((e) => {
-        if (!alive) return;
-        if (e instanceof UnauthorizedError) setAuthErr(true);
-        else setError(String(e.message ?? e));
-        setLoading(false);
-      });
-    return () => { alive = false; };
-  }, [da, a, group]);
-
-  if (loading) {
-    return <div className="py-16 text-center text-sm" style={{ color: t.muted }}>Caricamento...</div>;
-  }
-  if (authErr) {
-    return (
-      <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.text, background: t.card, boxShadow: t.shadow }}>
-        <p className="font-bold" style={{ color: t.negative }}>API key mancante o non valida</p>
-        <p className="mt-1.5 text-xs" style={{ color: t.muted }}>Imposta la chiave (ecm_...) nella sezione "API Key" della sidebar.</p>
-      </div>
-    );
-  }
-  if (error) {
-    return <div className="my-8 p-5 rounded-xl text-sm" style={{ border: "1px solid " + t.negative, color: t.negative }}>{error}</div>;
-  }
-
-  const rows = resp?.dati ?? [];
+  const rows = r.data?.dati ?? [];
   const colonne = rows.length ? Object.keys(rows[0]) : [];
   const findCol = (kw: string) => colonne.find((c) => c.toLowerCase().indexOf(kw) >= 0);
-  const tot = (col?: string) => (col ? rows.reduce((s, r) => s + (Number(r[col]) || 0), 0) : 0);
+  const tot = (col?: string) => (col ? rows.reduce((s, row) => s + (Number(row[col]) || 0), 0) : 0);
   const ordiniCol = findCol("ordini");
   const fattCol = findCol("fatturato");
   const paiaCol = findCol("paia nette");
@@ -67,7 +34,7 @@ export default function Ordini({ da, a }: { da: string; a: string }) {
   const nameCol = colonne[0];
   const gLabel = (GRUPPI.find((g) => g.v === group)?.label) ?? group;
   const chartRows = nameCol && ordiniCol
-    ? rows.map((r) => ({ name: String(r[nameCol] ?? ""), v: Number(r[ordiniCol]) || 0 }))
+    ? rows.map((row) => ({ name: String(row[nameCol] ?? ""), v: Number(row[ordiniCol]) || 0 }))
         .sort((x, y) => y.v - x.v).slice(0, 8)
     : [];
 
