@@ -191,17 +191,67 @@ function Shell() {
   );
 }
 
+/* ErrorBoundary: se un componente crasha durante il render mostra l'errore
+   invece di lasciare la pagina bianca (diagnosi sullo schermo). */
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: unknown) {
+    console.error("Crash render:", error, info);
+  }
+  render() {
+    const e = this.state.error;
+    if (e) {
+      return (
+        <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#F8FAFC", color: "#111827" }}>
+          <div className="max-w-lg w-full p-6 rounded-xl" style={{ border: "1px solid #E5E7EB", background: "#FFFFFF" }}>
+            <p className="text-base font-bold mb-2">Errore dell'applicazione</p>
+            <p className="text-xs mb-3" style={{ color: "#6B7280" }}>
+              Il rendering si e' interrotto. Dettaglio tecnico (utile per la diagnostica):
+            </p>
+            <pre className="text-[11px] p-3 rounded-lg overflow-auto mb-4"
+                 style={{ background: "#F3F4F6", color: "#991B1B", whiteSpace: "pre-wrap" }}>
+              {e.name}: {e.message}
+            </pre>
+            <div className="flex gap-2">
+              <button onClick={() => window.location.reload()}
+                      className="px-3.5 py-2 rounded-lg text-xs font-bold"
+                      style={{ background: "#0D9488", color: "#FFFFFF" }}>
+                Ricarica
+              </button>
+              <button onClick={() => this.setState({ error: null })}
+                      className="px-3.5 py-2 rounded-lg text-xs font-semibold"
+                      style={{ border: "1px solid #E5E7EB", color: "#111827" }}>
+                Riprova senza ricaricare
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function Root() {
   const { t } = useTheme();
   const { ready, authed, mode, mfaPending } = useAuth();
   if (!ready) {
     return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: t.muted }}>Caricamento...</div>;
   }
-  if (!authed) return <Login />;
+  if (!authed) return <ErrorBoundary><Login /></ErrorBoundary>;
   /* gate 2FA: la Shell (e quindi i dati) resta inaccessibile finche' il
      fattore TOTP non e' verificato */
-  if (mfaPending && mode === "sb") return <ForcedMfa />;
-  return <Shell />;
+  if (mfaPending && mode === "sb") return <ErrorBoundary><ForcedMfa /></ErrorBoundary>;
+  return <ErrorBoundary><Shell /></ErrorBoundary>;
 }
 
 export default function App() {
