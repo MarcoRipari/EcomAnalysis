@@ -91,7 +91,10 @@ function Shell() {
   const page = TITOLI[location.pathname] ?? TITOLI["/"];
   const utente = me?.nome ?? email ?? "Utente";
 
+  /* DataProvider avvolge TUTTO (header compreso): l'indicatore nella barra
+     in alto legge la stessa mappa delle pagine e la coda non si ferma mai. */
   return (
+    <DataProvider da={da} a={a} confronti={confronti}>
     <div className="flex min-h-screen" style={{ background: t.bg, color: t.text }}>
       <aside className="w-56 shrink-0 flex flex-col" style={{ background: t.surface, borderRight: "1px solid " + t.border }}>
         <div className="flex items-center gap-2.5 px-5 py-5">
@@ -145,7 +148,7 @@ function Shell() {
             <h1 className="text-xl font-extrabold tracking-tight">{page.title}</h1>
             <p className="text-xs mt-0.5" style={{ color: t.muted }}>{page.sub}</p>
           </div>
-          <HeaderBar da={da} a={a} onOpen={() => setPeriodoOpen(!periodoOpen)} />
+          <HeaderBar da={da} a={a} confronti={confronti} onOpen={() => setPeriodoOpen(!periodoOpen)} />
         </header>
         {/* selettore periodo semi-nascosto */}
         {periodoOpen && (
