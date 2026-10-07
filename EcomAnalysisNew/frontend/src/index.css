@@ -1,6 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 :root {
   --font-ui: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
 }
@@ -9,3 +10,10 @@ body { margin: 0; font-family: var(--font-ui); -webkit-font-smoothing: antialias
 input, select, button { font-family: inherit; }
 input[type="date"] { color-scheme: dark; }
 :root[data-theme="light"] input[type="date"] { color-scheme: light; }
+
+/* indicatore di caricamento periodo (barra in alto) */
+@keyframes ea-spin { to { transform: rotate(360deg); } }
+.ea-spin {
+  animation: ea-spin 0.9s linear infinite;
+  border-radius: 9999px;
+}
