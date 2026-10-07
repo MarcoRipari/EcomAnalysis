@@ -1,6 +1,7 @@
 import React from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { useReport, ReportResp, Tabella } from "../lib/store-types";
+import { useReport } from "../lib/store";
+import { ReportResp, Tabella } from "../lib/store-types";
 import { Panel, Section, DataTable, Loading, LoadErr, fmtEUR, SERIES, useTheme } from "../components/ui";
 
 /* Nazioni dal report tipo=nazioni (dati dalla cache unica): KPI per nazione
