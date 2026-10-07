@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import * as sb from "../lib/supabase";
 import { useAuth } from "../lib/auth";
 import { UnauthorizedError } from "../lib/api";
 import { useTheme } from "../components/ui";
@@ -191,16 +192,17 @@ export function ForcedMfa() {
     if (started) return;
     setStarted(true);
     setBusy(true);
-    import("../lib/supabase").then(async (sb) => {
+    (async () => {
       try {
         const e = await sb.enrollTotp();
         if (alive) setEnroll(e);
-      } catch {
-        if (alive) setErr("Impossibile creare il fattore 2FA. Riprova piu' tardi o esci.");
+      } catch (x) {
+        if (alive) setErr("Impossibile creare il fattore 2FA: " +
+          String((x as Error)?.message ?? (x as { code?: string })?.code ?? "errore sconosciuto"));
       } finally {
         if (alive) setBusy(false);
       }
-    });
+    })();
     return () => { alive = false; };
   }, [started]);
 
@@ -209,7 +211,6 @@ export function ForcedMfa() {
     setBusy(true);
     setErr(null);
     try {
-      const sb = await import("../lib/supabase");
       await sb.confirmEnroll(enroll.id, code.trim());
       clearMfaPending();
     } catch {
