@@ -52,6 +52,34 @@ export async function listVerifiedTotp(): Promise<string[]> {
     .map((f) => f.id);
 }
 
+/* Elenco di TUTTI i fattori totp (verified e new/unverified). */
+export async function listAllTotp(): Promise<{ id: string; status: string }[]> {
+  const c = await ensureClient();
+  const { data } = await c.auth.mfa.listFactors();
+  return (data?.all ?? [])
+    .filter((f) => f.factor_type === "totp")
+    .map((f) => ({ id: f.id, status: f.status }));
+}
+
+/* Rimozione di un fattore (per pulire i fattori "new" mai confermati:
+   Supabase rifiuta enroll oltre il limite di fattori per utente). */
+export async function unenrollFactor(factorId: string): Promise<void> {
+  const c = await ensureClient();
+  const { error } = await c.auth.mfa.unenroll({ factorId });
+  if (error) throw error;
+}
+
+/* Cancella tutti i fattori totp non verificati, poi enroll. Cosi' i tentativi
+   abbandonati non si accumulano sull'account. */
+export async function enrollTotpClean(): Promise<{ id: string; secret: string; uri: string }> {
+  const all = await listAllTotp();
+  const stale = all.filter((f) => f.status !== "verified");
+  for (const f of stale) {
+    try { await unenrollFactor(f.id); } catch { /* prosegue comunque */ }
+  }
+  return enrollTotp();
+}
+
 /* Attivazione 2FA: crea il fattore TOTP e restituisce segreto + URI otpauth
    da inserire a mano nell'app authenticator (o da mostrare come QR). */
 export async function enrollTotp(): Promise<{ id: string; secret: string; uri: string }> {
