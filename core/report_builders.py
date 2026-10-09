@@ -718,7 +718,8 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
 
         def _agg_by(keys: list[str]) -> pd.DataFrame:
             aggs = {
-                "fatt": ("nettoNetto", "sum"),
+                #"fatt": ("nettoNetto", "sum"),
+                "fatt": ("fattReale", "sum"),
                 "lordo": ("lordoSpedito", "sum"),
                 "fSped": ("nettoSpedito", "sum"),
                 "fReso": ("nettoReso", "sum"),
@@ -739,7 +740,8 @@ def nazioni_unified_report(periodi: list[tuple[str, pd.DataFrame]], nazioni_scel
         g_c = _agg_by(["_naz"])                       # GLOBAL_COUNTRY
         g_gb = _agg_by(["_brand"])                    # GLOBAL_BRAND
         tot = {                                       # GLOBAL
-            "fatt": float(work["nettoNetto"].sum()),
+            #"fatt": float(work["nettoNetto"].sum()),
+            "fatt": float(work["fattReale"].sum()),
             "lordo": float(work["lordoSpedito"].sum()),
             "fSped": float(work["nettoSpedito"].sum()),
             "fReso": float(work["nettoReso"].sum()),
