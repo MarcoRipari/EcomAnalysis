@@ -38,13 +38,18 @@ from datetime import datetime, timezone
 
 import requests
 import streamlit as st
-from streamlit.components.v1 import html as _iframe_html
 
 try:
     from zoneinfo import ZoneInfo
     _TZ = ZoneInfo("Europe/Rome")
 except Exception:   # fuso non disponibile (raro): si resta sul fuso del server
     _TZ = timezone.utc
+
+def _iframe_html(src: str, height: int) -> None:
+    """HTML/script in un iframe (st.iframe sostituisce st.components.v1.html, deprecato).
+    L'altezza minima è 1 px: lo script del cookie gira comunque (srcdoc con allow-same-origin)."""
+    st.iframe(src, height=max(1, height))
+
 
 # ------------------------------------------------------------------ configurazione
 DURATA_SESSIONE_GIORNI = 30   # durata "X": persistenza del login (cookie + refresh)
@@ -313,14 +318,14 @@ def _write_cookie(refresh_token: str) -> None:
     _iframe_html(
         f"<script>document.cookie = '{COOKIE_NAME}={refresh_token}; "
         f"max-age={max_age}; path=/; SameSite=Lax';</script>",
-        height=0,
+        height=1,
     )
 
 
 def _clear_cookie() -> None:
     _iframe_html(
         f"<script>document.cookie = '{COOKIE_NAME}=; max-age=0; path=/; SameSite=Lax';</script>",
-        height=0,
+        height=1,
     )
 
 
@@ -415,7 +420,7 @@ def _login_flow() -> None:
         with st.form("login_form"):
             email = st.text_input("Email", key="login_email")
             password = st.text_input("Password", type="password", key="login_pwd")
-            entra = st.form_submit_button("Accedi", type="primary", use_container_width=True)
+            entra = st.form_submit_button("Accedi", type="primary", width="stretch")
 
     if entra:
         try:
@@ -441,7 +446,7 @@ def _totp_flow(sess: dict) -> None:
         st.markdown(_CSS_LOGIN, unsafe_allow_html=True)
         with st.form("totp_form"):
             code = st.text_input("Codice TOTP (6 cifre)", max_chars=6, key="totp_code")
-            ok = st.form_submit_button("Verifica", type="primary", use_container_width=True)
+            ok = st.form_submit_button("Verifica", type="primary", width="stretch")
     if ok:
         try:
             full = verify_totp(sess, code.strip().replace(" ", ""))
@@ -486,7 +491,7 @@ def _enroll_flow(sess: dict) -> None:
             code = st.text_input("2️⃣ Codice a 6 cifre generato dall'app",
                                  max_chars=6, key="enroll_gate_code")
             ok = st.form_submit_button("3️⃣ Conferma e attiva la 2FA",
-                                       type="primary", use_container_width=True)
+                                       type="primary", width="stretch")
 
     if ok:
         try:

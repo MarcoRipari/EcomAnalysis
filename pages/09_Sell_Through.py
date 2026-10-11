@@ -12,7 +12,7 @@ st.caption(
     "Carica il file **BUYING** (sell-in), stesso layout posizionale del tab originale: "
     "colonna F=Codice, G=Variante, H=Colore, L=Quantità, AV=Codice Cliente."
 )
-buying_file = st.file_uploader("BUYING (sell-in)", type=["csv", "txt"])
+buying_file = st.file_uploader("BUYING (sell-in)", type=["csv"])
 
 livello = st.radio("Livello di aggregazione", ["Articolo (7)", "Articolo/Variante (9)", "Articolo/Variante/Colore (13)"],
                     horizontal=True)
@@ -40,7 +40,7 @@ if df.empty:
 
 st.caption(f"{len(df):,} codici in sell-through, ordinati per Paia Vendute (Totale) decrescenti.".replace(",", "."))
 
-currency_cols = [c for c in df.columns if c.startswith("Fatt.Netto") or c.startswith("P.Medio")]
+currency_cols = [c for c in df.columns if c.startswith("Fatturato") or c.startswith("P.Medio")]
 percent_cols = [c for c in df.columns if c.startswith("ST%") or c.startswith("% su")]
 number_cols = [c for c in df.columns if c.startswith("Vend.") or c.startswith("Resid.") or c == "Acq."]
 
@@ -49,4 +49,4 @@ col_config.update({c: currency_col() for c in currency_cols})
 col_config.update({c: percent_col() for c in percent_cols})
 col_config.update({c: number_col() for c in number_cols})
 
-st.dataframe(df, hide_index=True, use_container_width=True, height=700, column_config=col_config)
+st.dataframe(df, hide_index=True, width="stretch", height=700, column_config=col_config)

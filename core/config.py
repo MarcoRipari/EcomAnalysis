@@ -54,20 +54,12 @@ MAP_NATION = {
     "united kingdom": "GB", "united states": "US", "stati uniti": "US", "belgium": "BE",
     "denmark": "DK", "españa": "ES", "poland": "PL", "sweden": "SE", "monaco": "FR",
     "nederland": "NL",
-    # Alias aggiuntivi — porting della correzione manuale Nazione usata sui file TXT grezzi
-    # (SWITCH($B2; ...) su circa 20 varianti in francese/inglese con maiuscole miste).
-    # Il lookup è case-insensitive (fatto su .str.lower() in engine.py), quindi qui basta
-    # UNA voce per variante, a differenza dell'originale che doveva elencare "France" E
-    # "FRANCE" perché SWITCH() di Sheets è case-sensitive.
+    # Alias aggiuntivi (varianti in francese/inglese). Il lookup è case-insensitive
+    # (.str.lower() in engine.py): basta UNA voce per variante.
     "allemagne": "DE", "autriche": "AT", "belgique": "BE", "espana": "ES",
     "martinique": "FR", "mc": "FR", "netherland": "NL", "pays-bas": "NL",
     "reunion": "FR", "va": "IT",
 }
-
-# Sentinella usata da alcuni marketplace quando il campo Nazione è oscurato per privacy.
-# Va risolta con resolve_anonymized_nazione() in engine.py PRIMA di passare la colonna a
-# process_dataset (che altrimenti la lascerebbe passare invariata come "ANONYMIZED").
-NAZIONE_ANONIMIZZATA = "anonymized"
 
 TASSI_CAMBIO = {
     "EUR": 1.00, "CZK": 24.161, "DKK": 7.4686, "GBP": 0.8796, "PLN": 4.238,
@@ -90,8 +82,8 @@ IVA2 = {
 CODICI_DIRETTI = ["0019243"]
 CODICI_ESTERNI = ["0039632"]
 
-# Marketplace inclusi nel match composito "affidabile" della riconciliazione resi
-MKP_INCLUSI_MATCH_COMPOSITO = ["Naturino", "FlowerMountain", "CandiceCooper", "VoileBlanche", "Falcotto"]
+# Anno fiscale aziendale: dal 1° novembre al 31 ottobre (es. 01/11/2025 → 31/10/2026)
+MESE_INIZIO_ANNO_FISCALE = 11
 
 MESI_IT = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
            "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]

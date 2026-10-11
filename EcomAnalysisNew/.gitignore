@@ -1,6 +1,0 @@
-data/
-venv/
-core/__pycache__/
-.env
-api/.env
-*.env

@@ -4,7 +4,7 @@ Importazione del DB da console (SSH/putty), senza passare dall'interfaccia Strea
 
 Riusa le STESSE funzioni della pagina "Carica Dati" (core.engine + core.db): la semantica è
 identica — DATASET → upsert idempotente (ricaricare lo stesso file non duplica nulla),
-RESI → riconciliazione con aggiornamento Spedito→Reso + righe standalone per i resi senza
+RESI → riconciliazione con aggiornamento Spedito→Reso + riga aggiunta per i resi senza
 spedito noto.
 
 USO (lo script si posiziona da solo sulla root del repo, quindi la CWD non conta):
@@ -12,7 +12,6 @@ USO (lo script si posiziona da solo sulla root del repo, quindi la CWD non conta
     python scripts/importa_db.py --dataset DATASET_2026.csv
     python scripts/importa_db.py --resi RESI_2026.csv
     python scripts/importa_db.py --dataset a.csv --dataset b.csv --resi r1.csv --resi r2.csv
-    python scripts/importa_db.py --dataset grezzo.txt --col-sito 16   # TXT: correzione Nazione
     python scripts/importa_db.py --anagrafica ANAGRAFICA.csv --dataset DATASET.csv
     python scripts/importa_db.py --stato          # solo stato del DB, nessuna scrittura
     python scripts/importa_db.py --svuota         # zona pericolosa: svuota tutto il DB
@@ -63,7 +62,7 @@ def _stampa_stato(conn) -> None:
     print(f"  Righe totali: {_fmt(stats['righe_totali'])}")
     print(f"  Spedite:      {_fmt(stats['spediti'])}")
     print(f"  Rese:         {_fmt(stats['resi'])}")
-    print(f"  Rimborsi extra (standalone): {_fmt(stats['standalone'])}")
+    print(f"  Resi senza ordine nel DB: {_fmt(stats['resi_senza_ordine'])}")
     if stats["data_min"]:
         print(f"  Copertura dati (Data Pagamento): dal {stats['data_min']} al {stats['data_max']}")
     else:
@@ -75,14 +74,11 @@ def main() -> int:
         description="Importazione incrementale del DB EcomAnalysis "
                     "(stessa pipeline della pagina Carica Dati, senza Streamlit).")
     p.add_argument("--dataset", action="append", default=[], metavar="FILE",
-                   help="File DATASET (CSV/TXT); ripetibile per più file")
+                   help="File DATASET (CSV); ripetibile per più file")
     p.add_argument("--resi", action="append", default=[], metavar="FILE",
-                   help="File RESI (CSV/TXT); ripetibile per più file")
+                   help="File RESI (CSV); ripetibile per più file")
     p.add_argument("--anagrafica", metavar="FILE",
                    help="File ANAGRAFICA (facoltativo: descrizioni articolo e genere)")
-    p.add_argument("--col-sito", type=int, default=None, metavar="IDX",
-                   help="Indice 0-based della colonna 'Sito esteso' per la correzione "
-                        "Nazione sui TXT grezzi (default: nessuna correzione)")
     p.add_argument("--stato", action="store_true",
                    help="Mostra solo lo stato del DB ed esci (nessuna scrittura)")
     p.add_argument("--svuota", action="store_true",
@@ -128,9 +124,6 @@ def main() -> int:
         nome = os.path.basename(path)
         print(f"—— {tipo}: {nome}")
         raw = engine.read_raw_csv(path)
-        if args.col_sito is not None:
-            print(f"  Correzione Nazione (colonna Sito esteso idx={args.col_sito})…")
-            engine.apply_nazione_correction_inplace(raw, args.col_sito)
         print(f"  Normalizzazione righe ({_fmt(len(raw))} righe)…")
         processed = engine.process_dataset(raw, anagrafica)
         del raw
@@ -148,7 +141,7 @@ def main() -> int:
             print()
             print(f"  ✅ {_fmt(stats['convertiti'])} convertite Spedito→Reso, "
                   f"{_fmt(stats['duplicati'])} già riconciliate (scartate), "
-                  f"{_fmt(stats['standalone'])} rimborsi extra senza spedito noto.")
+                  f"{_fmt(stats['senza_ordine'])} resi senza ordine nel DB.")
 
     print()
     _stampa_stato(conn)

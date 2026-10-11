@@ -12,15 +12,14 @@ import numpy as np
 from . import aggregations as agg
 from . import config as CFG
 from . import formatting as fmt
-
-import logging
-logging.basicConfig(level=logging.INFO)
+from . import metrics as met
 
 def var_pct(curr: float, old: float) -> float:
-    """Porting di getVar/varFatt: (curr/old - 1), con fallback se old==0."""
-    if old != 0:
-        return (curr / old) - 1
-    return 1.0 if curr > 0 else 0.0
+    """Variazione relativa (curr - old) / |old|. Con base zero non è calcolabile: NaN (le tabelle
+    mostrano "—" invece di un 100% o 0% inventato)."""
+    if old == 0 or old != old or curr != curr:
+        return float("nan")
+    return (curr - old) / abs(old)
 
 
 def img_url(sku13: str) -> str:
@@ -36,16 +35,18 @@ def kpi_block(kc: dict, ko: dict, y_curr: int, y_old: int) -> pd.DataFrame | Non
     periodi sulle colonne: i valori sono già formattati come stringa (stile italiano), perché
     il column_config di Streamlit si applica per colonna e non può gestire tipi diversi riga
     per riga nella stessa colonna."""
-    if kc["ordini"] == 0 and ko["ordini"] == 0:
+    if kc["paiaSped"] == 0 and ko["paiaSped"] == 0 and kc["fattReale"] == 0 and ko["fattReale"] == 0:
         return None
     rows = [
-        ("FATTURATO NETTO REALE", kc["fattReale"], ko["fattReale"], "currency"),
-        ("TOTALE ORDINI", kc["ordini"], ko["ordini"], "number"),
+        ("FATTURATO", kc["fattReale"], ko["fattReale"], "currency"),
         ("PAIA NETTE VENDUTE", kc["paiaNette"], ko["paiaNette"], "number"),
         ("VALORE MEDIO PAIO", kc["valMedio"], ko["valMedio"], "currency"),
+        ("SCONTRINO MEDIO", kc["scontrinoMedio"], ko["scontrinoMedio"], "currency"),
         ("% RESO", kc["percReso"], ko["percReso"], "percent"),
     ]
-    data = [(m, fmt.fmt(c, k), fmt.fmt(o, k), fmt.fmt_percent(var_pct(c, o))) for m, c, o, k in rows]
+    # la variazione di una percentuale è la differenza in punti (22% → 24% = +2,0 pp), non il +9% relativo
+    data = [(m, fmt.fmt(c, k), fmt.fmt(o, k),
+             fmt.fmt_pp(c - o) if k == "percent" else fmt.fmt_var(var_pct(c, o))) for m, c, o, k in rows]
     return pd.DataFrame(data, columns=["Metrica", str(y_curr), str(y_old), "Var % Y2Y"])
 
 
@@ -56,7 +57,11 @@ def kpi_block(kc: dict, ko: dict, y_curr: int, y_old: int) -> pd.DataFrame | Non
 def comparative_table(agg_current: dict, agg_old: dict, y_curr: int, y_old: int,
                        sort_type: str = "fatturatoNetto") -> pd.DataFrame:
     all_keys = set(agg_current["map"].keys()) | set(agg_old["map"].keys())
-    empty = {"ordini": 0, "paiaSpedite": 0.0, "paiaRese": 0.0, "paiaNette": 0.0, "fatturatoNetto": 0.0}
+    empty = {"ordini": 0, "paiaSpedite": 0.0, "paiaRese": 0.0, "paiaNette": 0.0,
+             "fatturatoSpedito": 0.0, "fatturatoNetto": 0.0}
+
+    def scontrino(d):
+        return d["fatturatoSpedito"] / d["ordini"] if d["ordini"] > 0 else 0.0
 
     rows = []
     for key in all_keys:
@@ -65,12 +70,12 @@ def comparative_table(agg_current: dict, agg_old: dict, y_curr: int, y_old: int,
         var_fatt = var_pct(c["fatturatoNetto"], o["fatturatoNetto"])
         p_reso_c = c["paiaRese"] / c["paiaSpedite"] if c["paiaSpedite"] > 0 else 0.0
         rows.append([key, c["fatturatoNetto"], o["fatturatoNetto"], var_fatt,
-                     c["paiaNette"], o["paiaNette"], c["ordini"], o["ordini"], p_reso_c,
+                     c["paiaNette"], o["paiaNette"], scontrino(c), scontrino(o), p_reso_c,
                      c.get(sort_type, 0)])
 
-    cols = ["Chiave", f"Fatt.Netto {y_curr}", f"Fatt.Netto {y_old}", "VAR% FATT",
-            f"Paia Nette {y_curr}", f"Paia Nette {y_old}", f"Ordini {y_curr}", f"Ordini {y_old}",
-            f"% Reso {y_curr}", "_sort"]
+    cols = ["Chiave", f"Fatturato {y_curr}", f"Fatturato {y_old}", "VAR% FATT",
+            f"Paia Nette {y_curr}", f"Paia Nette {y_old}",
+            f"Scontrino Medio {y_curr}", f"Scontrino Medio {y_old}", f"% Reso {y_curr}", "_sort"]
     df = pd.DataFrame(rows, columns=cols).sort_values("_sort", ascending=False).drop(columns="_sort")
     return df.reset_index(drop=True)
 
@@ -80,11 +85,12 @@ def single_year_table(aggregator: dict, y_curr: int, sort_type: str = "fatturato
     rows = []
     for key, c in aggregator["map"].items():
         p_reso = c["paiaRese"] / c["paiaSpedite"] if c["paiaSpedite"] > 0 else 0.0
+        val_medio = c["fatturatoNetto"] / c["paiaNette"] if c["paiaNette"] > 0 else 0.0
         scontrino = c["fatturatoSpedito"] / c["ordini"] if c["ordini"] > 0 else 0.0
-        rows.append([key, c["ordini"], c["paiaSpedite"], c["paiaRese"], p_reso,
-                     c["paiaNette"], scontrino, c["fatturatoNetto"], c.get(sort_type, 0)])
-    cols = ["Chiave", "Ordini", "Paia Spedite", "Paia Rese", "% Reso", "Paia Nette",
-            "Scontrino Medio", f"Fatturato Netto {y_curr}", "_sort"]
+        rows.append([key, c["paiaSpedite"], c["paiaRese"], p_reso,
+                     c["paiaNette"], val_medio, scontrino, c["fatturatoNetto"], c.get(sort_type, 0)])
+    cols = ["Chiave", "Paia Spedite", "Paia Rese", "% Reso", "Paia Nette",
+            "Valore Medio Paio", "Scontrino Medio", f"Fatturato {y_curr}", "_sort"]
     df = pd.DataFrame(rows, columns=cols).sort_values("_sort", ascending=False).drop(columns="_sort")
     return df.reset_index(drop=True)
 
@@ -95,30 +101,37 @@ def single_year_table(aggregator: dict, y_curr: int, sort_type: str = "fatturato
 # --------------------------------------------------------------------------------------
 
 def top_articoli_y2y(current_data: pd.DataFrame, old_data: pd.DataFrame, anagrafica: dict,
-                      y_curr: int, y_old: int, top_n: int = 20) -> pd.DataFrame:
+                      y_curr: int, y_old: int, top_n: int = 20,
+                      resi_fp_current: pd.DataFrame | None = None,
+                      resi_fp_old: pd.DataFrame | None = None) -> pd.DataFrame:
     has_old = old_data is not None and not old_data.empty
 
-    def build(df, is_current, m):
-        if df.empty:
+    def build(df, is_current, m, is_resi_fp=False):
+        if df is None or df.empty:
             return
         g = df.groupby("sku7", sort=False).agg(
             pCNet=("paiaNette", "sum"), pCSped=("paiaSpedite", "sum"),
             pCRes=("paiaRese", "sum"), f=("nettoNetto", "sum"),
-            clz=("clzOriginale", "first"), sku13=("sku13", "first"),
+            clz=("clzOriginale", "first") if "clzOriginale" in df.columns else ("sku7", "first"),
+            sku13=("sku13", "first") if "sku13" in df.columns else ("sku7", "first"),
         )
         for cod, r in g.iterrows():
-            entry = m.setdefault(cod, {"pCNet": 0, "pCSped": 0, "pCRes": 0, "fC": 0, "fO": 0,
-                                        "clz": r["clz"], "img": str(r["sku13"]).lower()})
+            entry = m.setdefault(cod, {"pCNet": 0.0, "pCSped": 0.0, "pCRes": 0.0, "fC": 0.0, "fO": 0.0,
+                                        "clz": r["clz"], "img": str(r["sku13"]).lower() if r["sku13"] else ""})
             if is_current:
-                entry["pCNet"] += r["pCNet"]; entry["pCSped"] += r["pCSped"]
-                entry["pCRes"] += r["pCRes"]; entry["fC"] += r["f"]
+                entry["pCNet"] += float(r["pCNet"])
+                entry["pCSped"] += float(r["pCSped"])
+                entry["pCRes"] += float(r["pCRes"])
+                entry["fC"] += float(r["f"])
             else:
-                entry["fO"] += r["f"]
+                entry["fO"] += float(r["f"])
 
     map_data: dict = {}
     build(current_data, True, map_data)
+    build(resi_fp_current, True, map_data, is_resi_fp=True)
     if has_old:
         build(old_data, False, map_data)
+        build(resi_fp_old, False, map_data, is_resi_fp=True)
 
     rows = []
     for cod, d in map_data.items():
@@ -126,9 +139,9 @@ def top_articoli_y2y(current_data: pd.DataFrame, old_data: pd.DataFrame, anagraf
         p_reso_c = d["pCRes"] / d["pCSped"] if d["pCSped"] > 0 else 0.0
         var_fatt = var_pct(d["fC"], d["fO"]) if has_old else None
         row = {"Foto": img_url(d["img"]), "Codice": cod, "Descrizione": desc,
-               f"Paia Nette {y_curr}": d["pCNet"], f"Fatt.Netto {y_curr}": d["fC"]}
+               f"Paia Nette {y_curr}": max(0.0, d["pCNet"]), f"Fatturato {y_curr}": d["fC"]}
         if has_old:
-            row[f"Fatt.Netto {y_old}"] = d["fO"]
+            row[f"Fatturato {y_old}"] = d["fO"]
             row["VAR% FATT"] = var_fatt
         row[f"% Reso {y_curr}"] = p_reso_c
         row["_sort"] = d["fC"]
@@ -140,9 +153,10 @@ def top_articoli_y2y(current_data: pd.DataFrame, old_data: pd.DataFrame, anagraf
     return df.sort_values("_sort", ascending=False).drop(columns="_sort").head(top_n).reset_index(drop=True)
 
 
-def top_articoli_dashboard(current_data: pd.DataFrame, anagrafica: dict, top_n: int = 5000) -> pd.DataFrame:
+def top_articoli_dashboard(current_data: pd.DataFrame, anagrafica: dict, top_n: int = 5000,
+                           resi_fp_data: pd.DataFrame | None = None) -> pd.DataFrame:
     """Porting della tabella Top Articoli della Dashboard (livello SKU13, solo anno corrente)."""
-    agg_sku = agg.aggregate_by_key(current_data, "sku13")
+    agg_sku = agg.aggregate_by_key(current_data, "sku13", resi_fp_data)
     rows = []
     for sku, item in agg_sku["map"].items():
         desc = anagrafica.get(sku, {}).get("desc") or anagrafica.get(sku[:7], {}).get("desc", "-")
@@ -151,73 +165,12 @@ def top_articoli_dashboard(current_data: pd.DataFrame, anagrafica: dict, top_n: 
             "Foto": img_url(item["img"]), "Articolo": f"{sku.upper()} — {desc}",
             "Collezione": item["clzOriginale"], "Paia Spedite": item["paiaSpedite"],
             "Paia Rese": item["paiaRese"], "% Reso": p_reso, "Paia Nette": item["paiaNette"],
-            "Fatturato Netto": item["fatturatoNetto"],
+            "Valore Reso": item["fatturatoReso"], "Fatturato": item["fatturatoNetto"],
         })
     df = pd.DataFrame(rows)
     if df.empty:
         return df
-    return df.sort_values("Paia Nette", ascending=False).head(top_n).reset_index(drop=True)
-
-
-# --------------------------------------------------------------------------------------
-# Andamento mensile — porting di drawMonthlyTrendModule
-# --------------------------------------------------------------------------------------
-
-def monthly_trend(current_data: pd.DataFrame, old_data: pd.DataFrame,
-                   resi_standalone_current: pd.DataFrame, resi_standalone_old: pd.DataFrame,
-                   y_curr: int, y_old: int) -> pd.DataFrame:
-
-    def with_mese_vendita(df):
-        if df.empty:
-            return df
-        out = df.copy()
-        out["_mese"] = out["dataVendita"].dt.month.fillna(0).astype(int)
-        return out
-
-    def with_mese_reso(df):
-        if df.empty:
-            return df
-        out = df.copy()
-        d = out["dataReso"].fillna(out.get("dataVendita"))
-        out["_mese"] = pd.to_datetime(d).dt.month.fillna(0).astype(int)
-        return out
-
-    agg_c = agg.aggregate_by_key(with_mese_vendita(current_data), "_mese")
-    agg_o = agg.aggregate_by_key(with_mese_vendita(old_data), "_mese")
-    agg_sc = agg.aggregate_by_key(with_mese_reso(resi_standalone_current), "_mese")
-    agg_so = agg.aggregate_by_key(with_mese_reso(resi_standalone_old), "_mese")
-
-    empty = {"ordini": 0, "paiaSpedite": 0.0, "paiaRese": 0.0, "paiaNette": 0.0,
-             "fatturatoSpedito": 0.0, "fatturatoNetto": 0.0}
-
-    rows = []
-    for m in range(1, 13):
-        key = str(m)
-        c = agg_c["map"].get(key, empty)
-        o = agg_o["map"].get(key, empty)
-        sc = agg_sc["map"].get(key, {"paiaRese": 0.0, "paiaNette": 0.0, "fatturatoNetto": 0.0})
-        so = agg_so["map"].get(key, {"paiaNette": 0.0, "fatturatoNetto": 0.0})
-
-        fatt_reale_c = c["fatturatoNetto"] + sc["fatturatoNetto"]
-        fatt_reale_o = o["fatturatoNetto"] + so["fatturatoNetto"]
-        paia_nette_reale_c = c["paiaNette"] + sc["paiaNette"]
-        paia_nette_reale_o = o["paiaNette"] + so["paiaNette"]
-        paia_rese_reale_c = c["paiaRese"] + sc["paiaRese"]
-
-        if fatt_reale_c == 0 and fatt_reale_o == 0 and c["ordini"] == 0:
-            continue
-
-        var_fatt = var_pct(fatt_reale_c, fatt_reale_o)
-        p_reso = paia_rese_reale_c / c["paiaSpedite"] if c["paiaSpedite"] > 0 else 0.0
-        scontrino_medio = c["fatturatoSpedito"] / c["ordini"] if c["ordini"] > 0 else 0.0
-
-        rows.append([CFG.MESI_IT[m - 1], fatt_reale_c, fatt_reale_o, var_fatt, c["ordini"],
-                     paia_nette_reale_c, p_reso, scontrino_medio, paia_nette_reale_o])
-
-    cols = ["Mese", f"Fatt.Netto Reale {y_curr}", f"Fatt.Netto Reale {y_old}", "VAR% FATT",
-            f"Ordini {y_curr}", f"Paia Nette {y_curr}", f"% Reso {y_curr}",
-            f"Scontrino Medio {y_curr}", f"Paia Nette {y_old}"]
-    return pd.DataFrame(rows, columns=cols)
+    return df.sort_values("Fatturato", ascending=False).head(top_n).reset_index(drop=True)
 
 
 # --------------------------------------------------------------------------------------
@@ -257,13 +210,12 @@ def _mesi_periodo(da, a) -> list[tuple[int, int]]:
     return mesi
 
 
-def _stats_mensili(venduto: pd.DataFrame, standalone: pd.DataFrame | None,
+def _stats_mensili(venduto: pd.DataFrame, resi_fp: pd.DataFrame | None,
                    mesi: list[tuple[int, int]]) -> dict[tuple[int, int], dict]:
     """(anno, mese) → metriche del mese. Stessa semantica di monthly_trend: il fatturato
-    netto reale include i rimborsi standalone attribuiti al mese di dataReso (fallback
-    dataVendita); gli ordini sono i ordineId distinti non vuoti delle sole vendite."""
-    stats = {ym: {"fatturato": 0.0, "ordini": 0, "paiaSpedite": 0.0, "paiaRese": 0.0,
-                  "paiaNette": 0.0} for ym in mesi}
+    reale include i resi fuori periodo attribuiti al mese di dataReso (fallback dataVendita)."""
+    stats = {ym: {"fatturato": 0.0, "paiaSpedite": 0.0, "paiaRese": 0.0, "paiaNette": 0.0,
+                  "nettoSpedito": 0.0, "ordini": 0} for ym in mesi}
 
     v = venduto
     if v is not None and not v.empty and "dataVendita" in v.columns:
@@ -273,16 +225,17 @@ def _stats_mensili(venduto: pd.DataFrame, standalone: pd.DataFrame | None,
                             v["dataVendita"].dt.month.astype(int)))
         v["_ord"] = v["ordineId"].where(v["ordineId"] != "")
         g = v.groupby("_ym").agg({"nettoNetto": "sum", "paiaSpedite": "sum", "paiaRese": "sum",
-                                  "paiaNette": "sum", "_ord": "nunique"})
+                                  "paiaNette": "sum", "nettoSpedito": "sum", "_ord": "nunique"})
         for ym, r in g.iterrows():
             if ym in stats:
-                stats[ym]["fatturato"] += float(r["nettoNetto"])
+                stats[ym]["nettoSpedito"] += float(r["nettoSpedito"])
                 stats[ym]["ordini"] = int(r["_ord"])
+                stats[ym]["fatturato"] += float(r["nettoNetto"])
                 stats[ym]["paiaSpedite"] += float(r["paiaSpedite"])
                 stats[ym]["paiaRese"] += float(r["paiaRese"])
                 stats[ym]["paiaNette"] += float(r["paiaNette"])
 
-    s = standalone
+    s = resi_fp
     if s is not None and not s.empty and "dataReso" in s.columns:
         s = s.copy()
         d = pd.to_datetime(s["dataReso"].fillna(s.get("dataVendita")))
@@ -295,25 +248,26 @@ def _stats_mensili(venduto: pd.DataFrame, standalone: pd.DataFrame | None,
                 stats[ym]["paiaNette"] += float(r["paiaNette"])
 
     for st in stats.values():
+        st["paiaNette"] = max(0.0, st["paiaNette"])               # mai negative
         st["percReso"] = st["paiaRese"] / st["paiaSpedite"] if st["paiaSpedite"] > 0 else 0.0
+        st["scontrino"] = st["nettoSpedito"] / st["ordini"] if st["ordini"] > 0 else 0.0
     return stats
 
 
 def _agg_stagioni(stats: dict[tuple[int, int], dict]) -> dict[str, dict]:
     """Somma le statistiche mensili per stagione (etichetta 'SS 2026' / 'FW 25/26'),
-    mantenendo l'ordine cronologico di prima comparsa. NB: gli ordini di stagione sono
-    la somma degli ordini distinti mese per mese (un ordine a cavallo di due mesi verrebbe
-    contato due volte, ai fini del trend è trascurabile e coerente tra i periodi)."""
+    mantenendo l'ordine cronologico di prima comparsa."""
     stagioni: dict[str, dict] = {}
     for (y, m), st in stats.items():
         lab = _stagione_label(y, m)
-        d = stagioni.setdefault(lab, {"fatturato": 0.0, "ordini": 0, "paiaSpedite": 0.0,
-                                      "paiaRese": 0.0, "paiaNette": 0.0, "mesi": 0})
-        for k in ("fatturato", "ordini", "paiaSpedite", "paiaRese", "paiaNette"):
+        d = stagioni.setdefault(lab, {"fatturato": 0.0, "paiaSpedite": 0.0, "paiaRese": 0.0,
+                                      "paiaNette": 0.0, "nettoSpedito": 0.0, "ordini": 0, "mesi": 0})
+        for k in ("fatturato", "paiaSpedite", "paiaRese", "paiaNette", "nettoSpedito", "ordini"):
             d[k] += st[k]
         d["mesi"] += 1
     for d in stagioni.values():
         d["percReso"] = d["paiaRese"] / d["paiaSpedite"] if d["paiaSpedite"] > 0 else 0.0
+        d["scontrino"] = d["nettoSpedito"] / d["ordini"] if d["ordini"] > 0 else 0.0
     return stagioni
 
 
@@ -322,15 +276,15 @@ def monthly_season_report(da, a,
                            ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Report "Mese per Mese" con stagioni SS/FW, a finestra mobile sul periodo scelto.
 
-    `periodi` = [(etichetta, venduto, rimborsi standalone), …]: la posizione i corrisponde
+    `periodi` = [(etichetta, venduto, resi fuori periodo), …]: la posizione i corrisponde
     al periodo scelto spostato di −i anni (0 = periodo scelto, 1 = anno−1, 2 = anno−2),
     quindi ogni riga-mese confronta lo stesso mese degli anni precedenti (con confronti=0
     la tabella mostra solo il periodo scelto, senza colonne di variazione).
 
     Ritorna (df_mesi, df_stagioni):
-      df_mesi   — una riga per ogni mese da month(da) a month(a), con: Fatturato Netto,
-                  Ordini, Paia Nette e % Reso del periodo corrente; per ogni anno di
-                  confronto: Fatturato Netto e VAR% di fatturato/ordini/paia;
+      df_mesi   — una riga per ogni mese da month(da) a month(a), con: Fatturato,
+                  Paia Nette e % Reso del periodo corrente; per ogni anno di
+                  confronto: Fatturato e VAR% di fatturato/paia;
       df_stagioni — una riga per stagione (SS/FW) toccata dal periodo, con le stesse
                   metriche e la colonna "Mesi nel periodo" (mesi presenti su 6).
     """
@@ -353,16 +307,16 @@ def monthly_season_report(da, a,
         etichetta = CFG.MESI_IT[m - 1] if len(mesi) <= 12 else f"{CFG.MESI_IT[m - 1]} {y}"
         riga: dict = {"Mese": etichetta, "Stagione": _stagione_label(y, m)}
         cur = stats[0].get((y, m))
-        riga[f"Fatturato Netto {labels[0]}"] = cur["fatturato"]
-        riga[f"Ordini {labels[0]}"] = cur["ordini"]
+        riga[f"Fatturato {labels[0]}"] = cur["fatturato"]
         riga[f"Paia Nette {labels[0]}"] = cur["paiaNette"]
         riga[f"% Reso {labels[0]}"] = cur["percReso"]
+        riga[f"Scontrino Medio {labels[0]}"] = cur["scontrino"]
         for i in range(1, len(periodi)):
             old = stats[i].get((y - i, m))
-            riga[f"Fatturato Netto {labels[i]}"] = old["fatturato"]
+            riga[f"Fatturato {labels[i]}"] = old["fatturato"]
             riga[f"VAR% FATT vs {labels[i]}"] = var_pct(cur["fatturato"], old["fatturato"])
-            riga[f"VAR% ORDINI vs {labels[i]}"] = var_pct(cur["ordini"], old["ordini"])
             riga[f"VAR% PAIA vs {labels[i]}"] = var_pct(cur["paiaNette"], old["paiaNette"])
+            riga[f"Scontrino Medio {labels[i]}"] = old["scontrino"]
         righe.append(riga)
     df_mesi = pd.DataFrame(righe)
 
@@ -378,18 +332,18 @@ def monthly_season_report(da, a,
     for k, lab in enumerate(ordini[0]):
         cur = stag[0][lab]
         riga: dict = {"Stagione": lab, "Mesi nel periodo": f"{cur['mesi']}/6"}
-        riga[f"Fatturato Netto {labels[0]}"] = cur["fatturato"]
-        riga[f"Ordini {labels[0]}"] = cur["ordini"]
+        riga[f"Fatturato {labels[0]}"] = cur["fatturato"]
         riga[f"Paia Nette {labels[0]}"] = cur["paiaNette"]
         riga[f"% Reso {labels[0]}"] = cur["percReso"]
+        riga[f"Scontrino Medio {labels[0]}"] = cur["scontrino"]
         for i in range(1, len(periodi)):
             old = stag[i].get(ordini[i][k]) if k < len(ordini[i]) else None
             if old is None:
                 continue
-            riga[f"Fatturato Netto {labels[i]}"] = old["fatturato"]
+            riga[f"Fatturato {labels[i]}"] = old["fatturato"]
             riga[f"VAR% FATT vs {labels[i]}"] = var_pct(cur["fatturato"], old["fatturato"])
-            riga[f"VAR% ORDINI vs {labels[i]}"] = var_pct(cur["ordini"], old["ordini"])
             riga[f"VAR% PAIA vs {labels[i]}"] = var_pct(cur["paiaNette"], old["paiaNette"])
+            riga[f"Scontrino Medio {labels[i]}"] = old["scontrino"]
         righe.append(riga)
     df_stagioni = pd.DataFrame(righe)
     return df_mesi, df_stagioni
@@ -400,27 +354,39 @@ def monthly_season_report(da, a,
 # --------------------------------------------------------------------------------------
 
 def comparativa_codici(current_data: pd.DataFrame, old_data: pd.DataFrame, anagrafica: dict,
-                        y_curr: int, y_old: int) -> pd.DataFrame:
+                        y_curr: int, y_old: int,
+                        resi_fp_current: pd.DataFrame | None = None,
+                        resi_fp_old: pd.DataFrame | None = None) -> pd.DataFrame:
     map_data: dict = {}
 
-    def build(df, is_current):
-        if df.empty:
+    def build(df, is_current, is_resi_fp=False):
+        if df is None or df.empty:
             return
         g = df.groupby("sku7", sort=False).agg(
             pNet=("paiaNette", "sum"), pSped=("paiaSpedite", "sum"), pRes=("paiaRese", "sum"),
-            f=("nettoNetto", "sum"), clz=("clzOriginale", "first"), sku13=("sku13", "first"),
+            f=("nettoNetto", "sum"),
+            clz=("clzOriginale", "first") if "clzOriginale" in df.columns else ("sku7", "first"),
+            sku13=("sku13", "first") if "sku13" in df.columns else ("sku7", "first"),
         )
         for cod, r in g.iterrows():
-            e = map_data.setdefault(cod, {"pCNet": 0, "pCSped": 0, "pCRes": 0, "fC": 0,
-                                           "pONet": 0, "pOSped": 0, "pORes": 0, "fO": 0,
-                                           "clz": r["clz"], "img": str(r["sku13"]).lower()})
+            e = map_data.setdefault(cod, {"pCNet": 0.0, "pCSped": 0.0, "pCRes": 0.0, "fC": 0.0,
+                                           "pONet": 0.0, "pOSped": 0.0, "pORes": 0.0, "fO": 0.0,
+                                           "clz": r["clz"], "img": str(r["sku13"]).lower() if r["sku13"] else ""})
             if is_current:
-                e["pCNet"] += r["pNet"]; e["pCSped"] += r["pSped"]; e["pCRes"] += r["pRes"]; e["fC"] += r["f"]
+                e["pCNet"] += float(r["pNet"])
+                e["pCSped"] += float(r["pSped"])
+                e["pCRes"] += float(r["pRes"])
+                e["fC"] += float(r["f"])
             else:
-                e["pONet"] += r["pNet"]; e["pOSped"] += r["pSped"]; e["pORes"] += r["pRes"]; e["fO"] += r["f"]
+                e["pONet"] += float(r["pNet"])
+                e["pOSped"] += float(r["pSped"])
+                e["pORes"] += float(r["pRes"])
+                e["fO"] += float(r["f"])
 
     build(current_data, True)
+    build(resi_fp_current, True, is_resi_fp=True)
     build(old_data, False)
+    build(resi_fp_old, False, is_resi_fp=True)
 
     rows = []
     for cod, d in map_data.items():
@@ -428,15 +394,15 @@ def comparativa_codici(current_data: pd.DataFrame, old_data: pd.DataFrame, anagr
         var_fatt = var_pct(d["fC"], d["fO"])
         p_reso_c = d["pCRes"] / d["pCSped"] if d["pCSped"] > 0 else 0.0
         p_reso_o = d["pORes"] / d["pOSped"] if d["pOSped"] > 0 else 0.0
-        rows.append([img_url(d["img"]), cod, d["clz"], desc, d["pCNet"], p_reso_c, d["fC"],
-                     d["pONet"], p_reso_o, d["fO"], var_fatt])
+        rows.append([img_url(d["img"]), cod, d["clz"], desc, max(0.0, d["pCNet"]), p_reso_c, d["fC"],
+                     max(0.0, d["pONet"]), p_reso_o, d["fO"], var_fatt])
 
     cols = ["Foto", "Codice", "Collezione", "Descrizione", f"Paia Net {y_curr}", f"% Reso {y_curr}",
-            f"Fatt. Net {y_curr}", f"Paia Net {y_old}", f"% Reso {y_old}", f"Fatt. Net {y_old}", "VAR% FATT"]
+            f"Fatturato {y_curr}", f"Paia Net {y_old}", f"% Reso {y_old}", f"Fatturato {y_old}", "VAR% FATT"]
     df = pd.DataFrame(rows, columns=cols)
     if df.empty:
         return df
-    return df.sort_values(f"Fatt. Net {y_curr}", ascending=False).reset_index(drop=True)
+    return df.sort_values(f"Fatturato {y_curr}", ascending=False).reset_index(drop=True)
 
 
 # --------------------------------------------------------------------------------------
@@ -463,8 +429,8 @@ def flatten_hierarchical_table(current_tree: dict, old_tree: dict, level_names: 
 
             p_c = c_node["fatturatoNetto"] / curr_total if curr_total > 0 else 0.0
             p_o = o_node["fatturatoNetto"] / old_total if old_total > 0 else 0.0
-            v_f = var_pct(c_node["fatturatoNetto"], o_node["fatturatoNetto"]) if o_node["fatturatoNetto"] else 0.0
-            v_p = var_pct(c_node["paiaNette"], o_node["paiaNette"]) if o_node["paiaNette"] else 0.0
+            v_f = var_pct(c_node["fatturatoNetto"], o_node["fatturatoNetto"])
+            v_p = var_pct(c_node["paiaNette"], o_node["paiaNette"])
             p_reso_c = c_node["paiaRese"] / c_node["paiaSpedite"] if c_node["paiaSpedite"] > 0 else 0.0
             p_reso_o = o_node["paiaRese"] / o_node["paiaSpedite"] if o_node["paiaSpedite"] > 0 else 0.0
 
@@ -474,9 +440,9 @@ def flatten_hierarchical_table(current_tree: dict, old_tree: dict, level_names: 
             rows.append({
                 "Voce": label, "Depth": depth,
                 "Paia Net Curr": c_node["paiaNette"], "% Reso Curr": p_reso_c,
-                "Fatt. Netto Curr": c_node["fatturatoNetto"], "% Tot Curr": p_c,
+                "Fatturato Curr": c_node["fatturatoNetto"], "% Tot Curr": p_c,
                 "Paia Net Old": o_node["paiaNette"], "% Reso Old": p_reso_o,
-                "Fatt. Netto Old": o_node["fatturatoNetto"], "% Tot Old": p_o,
+                "Fatturato Old": o_node["fatturatoNetto"], "% Tot Old": p_o,
                 "VAR% FATT": v_f, "VAR% PAIA": v_p,
             })
             if depth < max_depth - 1:
@@ -490,8 +456,8 @@ def flatten_hierarchical_table(current_tree: dict, old_tree: dict, level_names: 
 # Analisi Resi (status per collezione) — porting di generateResiModulo
 # --------------------------------------------------------------------------------------
 
-def resi_status(current_data: pd.DataFrame) -> pd.DataFrame:
-    agg_data = agg.aggregate_by_key(current_data, "clzMappata")
+def resi_status(current_data: pd.DataFrame, resi_fp_current: pd.DataFrame | None = None) -> pd.DataFrame:
+    agg_data = agg.aggregate_by_key(current_data, "clzMappata", resi_fp_current)
     soglia = 0.30
     rows = []
     for clz, item in agg_data["map"].items():
@@ -511,7 +477,7 @@ def resi_status(current_data: pd.DataFrame) -> pd.DataFrame:
             status = "🟢 OTTIMO"
         rows.append(["📁 " + clz, v, r, perc_reso, fatt, status])
     df = pd.DataFrame(rows, columns=["Brand/Collezione", "Paia Spedite", "Paia Rese", "% Reso",
-                                      "Fatturato Netto", "Status"])
+                                      "Fatturato", "Status"])
     if df.empty:
         return df
     return df.sort_values("% Reso", ascending=False).reset_index(drop=True)
@@ -530,9 +496,9 @@ def _sort_taglie(taglie: list[str]) -> list[str]:
     return sorted(taglie, key=key)
 
 
-def taglie_tables(current_data: pd.DataFrame) -> dict:
-    """{ brand: { gruppo: DataFrame[Taglia, Paia Nette, % su gruppo, % Reso, Fatturato Netto] } }"""
-    by_brand = agg.aggregate_by_taglia_per_brand(current_data)
+def taglie_tables(current_data: pd.DataFrame, resi_fp_current: pd.DataFrame | None = None) -> dict:
+    """{ brand: { gruppo: DataFrame[Taglia, Paia Nette, % su gruppo, % Reso, Fatturato] } }"""
+    by_brand = agg.aggregate_by_taglia_per_brand(current_data, resi_fp_current)
     result: dict = {}
     for brand in sorted(by_brand.keys()):
         result[brand] = {}
@@ -547,7 +513,7 @@ def taglie_tables(current_data: pd.DataFrame) -> dict:
                 perc_reso = d["paiaRese"] / d["paiaSpedite"] if d["paiaSpedite"] > 0 else 0.0
                 rows.append([t, d["paiaNette"], perc_su_gruppo, perc_reso, d["fatturatoNetto"]])
             result[brand][gruppo] = pd.DataFrame(
-                rows, columns=["Taglia", "Paia Nette", f"% su {gruppo}", "% Reso", "Fatturato Netto"])
+                rows, columns=["Taglia", "Paia Nette", f"% su {gruppo}", "% Reso", "Fatturato"])
     return result
 
 
@@ -558,280 +524,48 @@ def taglie_tables(current_data: pd.DataFrame) -> dict:
 def nazioni_disponibili(*dfs: pd.DataFrame) -> list[str]:
     naz = set()
     for df in dfs:
-        if df is not None and not df.empty:
+        if df is not None and not df.empty and "nazione" in df.columns:
             naz |= set(df["nazione"].astype(str).unique())
     return sorted(naz)
 
 
-def nazioni_metrics(venduto: pd.DataFrame, standalone: pd.DataFrame, nazioni: list[str]) -> pd.DataFrame:
-    """Una riga per nazione selezionata, con le metriche richieste per la pagina Nazioni."""
+def _per_nazione(df: pd.DataFrame | None, nazione: str) -> pd.DataFrame | None:
+    if df is None or df.empty or nazione == "GLOBAL":
+        return df
+    return df[df["nazione"].astype(str) == nazione]
+
+
+def nazioni_metrics(venduto: pd.DataFrame, resi_fp: pd.DataFrame, nazioni: list[str]) -> pd.DataFrame:
+    """Una riga per nazione selezionata (GLOBAL = tutte), con gli stessi KPI di metrics.kpi_reali."""
     rows = []
     for naz in nazioni:
-        if naz == "GLOBAL":
-            v = venduto if not venduto.empty else None
-            s = standalone if (standalone is not None and not standalone.empty) else None
-        else:
-            v = venduto[venduto["nazione"].astype(str) == naz] if not venduto.empty else None
-            s = standalone[standalone["nazione"].astype(str) == naz] if (standalone is not None and not standalone.empty) else None
-
-        fatt_venduto = v["nettoNetto"].sum() if (v is not None and not v.empty) else 0.0
-        fatt_extra = s["nettoNetto"].sum() if (s is not None and not s.empty) else 0.0
-        ordini = v.loc[v["ordineId"] != "", "ordineId"].nunique() if (v is not None and not v.empty) else 0
-        paia_sped = v["paiaSpedite"].sum() if (v is not None and not v.empty) else 0.0
-        paia_rese_in = v["paiaRese"].sum() if (v is not None and not v.empty) else 0.0
-        paia_nette = v["paiaNette"].sum() if (v is not None and not v.empty) else 0.0
-        paia_rese_out = s["paiaRese"].sum() if (s is not None and not s.empty) else 0.0
-        perc_reso = paia_rese_in / paia_sped if paia_sped > 0 else 0.0
-
-        rows.append([naz, fatt_venduto + fatt_extra, ordini, paia_nette, paia_rese_in, paia_rese_out, perc_reso])
-
-    cols = ["Nazione", "Fatturato Netto Totale", "Totale Ordini", "Totale Paia Nette",
-            "Paia Rese (spedito nel range)", "Paia Rese (spedito fuori range)", "% Reso"]
+        k = met.kpi_reali(_per_nazione(venduto, naz), _per_nazione(resi_fp, naz))
+        rows.append([naz, k["fattReale"], k["paiaNette"], k["paiaResePeriodo"],
+                     k["paiaReseFuoriPeriodo"], k["percReso"]])
+    cols = ["Nazione", "Fatturato", "Paia Nette", "Paia Rese (vendite del periodo)",
+            "Paia Rese (vendite fuori periodo)", "% Reso"]
     return pd.DataFrame(rows, columns=cols)
 
 
-def nazioni_brand_share(venduto: pd.DataFrame, nazione: str) -> pd.DataFrame:
-    """Share % del fatturato netto per brand (clzMappata), per una singola nazione."""
-    if venduto.empty:
-        return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
-
-    if nazione == "GLOBAL":
-        v = venduto
-    else:
-        v = venduto[venduto["nazione"].astype(str) == nazione]
-    
-    if v.empty:
-        return pd.DataFrame(columns=["Brand", "Fatturato Netto", "Share %"])
-    # ordineId vuoto non deve contare come ordine: NaN viene ignorato da nunique
-    # (stesso guard usato in nazioni_unified_report e aggregate_by_key)
-    v = v.copy()
-    v["_ord"] = v["ordineId"].where(v["ordineId"] != "")
-    g = v.groupby("clzMappata", sort=False, observed=True).agg({
-            "lordoSpedito": "sum",
-            "_ord": "nunique",
-            "nettoNetto": "sum",
-            "paiaSpedite": "sum",
-            "paiaRese": "sum",
-            "paiaNette": "sum"
-        }).reset_index()
-    g = g.rename(columns={"clzMappata": "Brand", "nettoNetto": "Fatturato Netto", "paiaSpedite": "Paia spedite", "paiaRese": "Paia rese", "paiaNette": "Paia nette", "_ord": "Ordini"})
-    tot = g["Fatturato Netto"].sum()
-    g["Share %"] = g["Fatturato Netto"] / tot if tot != 0 else 0.0
-    g["% Reso"] = np.where(g["Paia spedite"] > 0, g["Paia rese"] / g["Paia spedite"], 0.0)
-    g["Scontrino Medio"] = np.where(g["Ordini"] > 0, g["lordoSpedito"] / g["Ordini"], 0.0)
-    
-    g = g.drop(columns=["lordoSpedito"])
-
-    cols_order = [
-        "Brand",
-        "Ordini",
-        "Fatturato Netto",
-        "Share %",
-        "Scontrino Medio",
-        "Paia spedite",
-        "Paia rese",
-        "Paia nette",
-        "% Reso"
-    ]
-    return g[cols_order].sort_values("Fatturato Netto", ascending=False).reset_index(drop=True)
-
-
-# --------------------------------------------------------------------------------------
-# Report unificato Marketplace × Nazione × Brand — pagina "Nazioni" (confronto 3 anni)
-# --------------------------------------------------------------------------------------
-
-# --- Margini & commissioni marketplace (predisposizione, ATTUALMENTE DISATTIVATA) --------
-# Struttura pronta per il calcolo del margine nel report unificato. Quando i dati delle
-# commissioni marketplace saranno disponibili: compilare COMMISSIONI_MKP con la quota di
-# commissione applicata al fatturato netto per marketplace (es. {"ZALANDO": 0.25}) e
-# impostare ABILITA_MARGINI = True: il report aggiungerà le colonne "Margine Lordo" (€) e
-# "Margine %". Negli scope con marketplace GLOBAL la commissione è la media pesata sul
-# fatturato dei marketplace sottostanti, quindi anche le righe GLOBAL restano coerenti.
-# Finché i dati non ci sono, le colonne non compaiono nel report.
-ABILITA_MARGINI = False
-COMMISSIONI_MKP: dict[str, float] = {}   # marketplace -> commissione sul netto (0–1)
-COMMISSIONE_DEFAULT = 0.0                # marketplace assente dalla mappa
-
-
-def nazioni_unified_report(periodi: list[tuple], nazioni_scelte: list[str]) -> pd.DataFrame:
-    """
-    Come da docstring originale, con questa differenza:
-    Fatturato Netto = FATTURATO REALE = nettoNetto del venduto + nettoNetto dei
-    rimborsi standalone del periodo. `periodi` accetta sia coppie
-    (etichetta, venduto) — standalone ignorato, compatibilità con le chiamate
-    esistenti — sia triple (etichetta, venduto, standalone), come monthly_season_report.
-    Tutte le altre metriche (ordini, scontrino, paia, % reso) restano sul solo venduto.
-    """
-    cols = ["Anno", "Marketplace", "Nazione", "Brand", "Fatturato Netto", "Share %",
-            "Scontrino Medio", "Ordini", "Paia spedite", "Paia rese", "Paia nette",
-            "Reso %", "Reso % (valore)", "Var % Fatturato YoY", "Var % Ordini YoY", "Scope"]
-    if ABILITA_MARGINI:
-        cols = cols[:-1] + ["Margine Lordo", "Margine %", "Scope"]
-
-    nazioni_specifiche = {n for n in (nazioni_scelte or []) if n != "GLOBAL"}
-    rows: list[dict] = []
-
-    for p in periodi:
-        label, df = p[0], p[1]
-        standalone = p[2] if len(p) > 2 else None
-        if df is None or df.empty:
-            continue
-
-        work = df.copy()
-        work["_mkp"] = work["mkp"].astype(str)
-        work["_naz"] = work["nazione"].astype(str)
-        work["_brand"] = work["clzMappata"].fillna("").astype(str).replace("", "ALTRO")
-        work["_ord"] = work["ordineId"].where(work["ordineId"] != "")
-        if ABILITA_MARGINI:
-            work["_nettoComm"] = work["nettoNetto"] * work["_mkp"].map(
-                lambda m: COMMISSIONI_MKP.get(m, COMMISSIONE_DEFAULT))
-
-        # preparazione standalone: stesso trucco delle colonne _mkp/_naz/_brand,
-        # solo se il DataFrame ha le colonne necessarie
-        sw = None
-        if standalone is not None and not standalone.empty:
-            sw = standalone.copy()
-            dims = {"_mkp": "mkp", "_naz": "nazione", "_brand": "clzMappata"}
-            for k, c in dims.items():
-                if c in sw.columns:
-                    sw[k] = sw[c].fillna("").astype(str).replace("", "ALTRO") if c == "clzMappata" \
-                        else sw[c].astype(str)
-                else:
-                    sw = None
-                    break
-
-        def _agg_by(keys: list[str]) -> pd.DataFrame:
-            aggs = {
-                "fatt": ("nettoNetto", "sum"),
-                "lordo": ("lordoSpedito", "sum"),
-                "fSped": ("nettoSpedito", "sum"),
-                "fReso": ("nettoReso", "sum"),
-                "spedite": ("paiaSpedite", "sum"),
-                "rese": ("paiaRese", "sum"),
-                "nette": ("paiaNette", "sum"),
-                "ordini": ("_ord", "nunique"),
-            }
-            if ABILITA_MARGINI:
-                aggs["fComm"] = ("_nettoComm", "sum")
-            g = work.groupby(keys, sort=False, observed=True).agg(**aggs)
-
-            # FATTURATO REALE: aggiunge i rimborsi standalone aggregati sugli stessi
-            # gruppi (reindex allinea sugli indici del venduto; le combinazioni
-            # presenti SOLO nello standalone restano assorbite nel totale GLOBAL)
-            if sw is not None:
-                extra = sw.groupby(keys, sort=False, observed=True)["nettoNetto"].sum()
-                g = g.copy()
-                g["fatt"] = g["fatt"] + extra.reindex(g.index).fillna(0.0)
-            return g
-
-        g_det = _agg_by(["_mkp", "_naz", "_brand"])   # DETAIL
-        g_mc = _agg_by(["_mkp", "_naz"])              # MARKETPLACE_COUNTRY
-        g_mb = _agg_by(["_mkp", "_brand"])            # MARKETPLACE_BRAND
-        g_m = _agg_by(["_mkp"])                       # GLOBAL_MARKETPLACE
-        g_cb = _agg_by(["_naz", "_brand"])            # COUNTRY_BRAND
-        g_c = _agg_by(["_naz"])                       # GLOBAL_COUNTRY
-        g_gb = _agg_by(["_brand"])                    # GLOBAL_BRAND
-        tot = {
-            "fatt": float(work["nettoNetto"].sum())
-                    + (float(standalone["nettoNetto"].sum())
-                       if standalone is not None and not standalone.empty else 0.0),
-            "lordo": float(work["lordoSpedito"].sum()),
-            "fSped": float(work["nettoSpedito"].sum()),
-            "fReso": float(work["nettoReso"].sum()),
-            "spedite": float(work["paiaSpedite"].sum()),
-            "rese": float(work["paiaRese"].sum()),
-            "nette": float(work["paiaNette"].sum()),
-            "ordini": int(work["_ord"].nunique()),
-        }
-        if ABILITA_MARGINI:
-            tot["fComm"] = float(work["_nettoComm"].sum())
-
-        def _row(scope, mkp, naz, brand, k, share):
-            ordini = int(k["ordini"])
-            spedite = float(k["spedite"])
-            rese = float(k["rese"])
-            f_sped = float(k["fSped"])
-            row = {
-                "Anno": label,
-                "Marketplace": mkp, "Nazione": naz, "Brand": brand,
-                "Fatturato Netto": float(k["fatt"]),
-                "Share %": share,
-                "Scontrino Medio": (float(k["lordo"]) / ordini) if ordini > 0 else 0.0,
-                "Ordini": ordini,
-                "Paia spedite": spedite,
-                "Paia rese": rese,
-                "Paia nette": float(k["nette"]),
-                "Reso %": (rese / spedite) if spedite > 0 else 0.0,
-                "Reso % (valore)": (float(k["fReso"]) / f_sped) if f_sped > 0 else 0.0,
-                "Scope": scope,
-            }
-            if ABILITA_MARGINI:
-                f_comm = float(k["fComm"])
-                row["Margine Lordo"] = row["Fatturato Netto"] - f_comm
-                row["Margine %"] = (row["Margine Lordo"] / row["Fatturato Netto"]) if row["Fatturato Netto"] > 0 else 0.0
-            rows.append(row)
-
-        def _share(num, den):
-            return num / den if den > 0 else 0.0
-
-        for (m, c, b), k in g_det.iterrows():
-            if c in nazioni_specifiche:
-                _row("DETAIL", m, c, b, k, _share(k["fatt"], tot["fatt"]))
-        for (m, c), k in g_mc.iterrows():
-            if c in nazioni_specifiche:
-                _row("MARKETPLACE_COUNTRY", m, c, "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
-        for (m, b), k in g_mb.iterrows():
-            _row("MARKETPLACE_BRAND", m, "GLOBAL", b, k, _share(k["fatt"], tot["fatt"]))
-        for (c, b), k in g_cb.iterrows():
-            if c in nazioni_specifiche:
-                _row("COUNTRY_BRAND", "GLOBAL", c, b, k, _share(k["fatt"], tot["fatt"]))
-        for m, k in g_m.iterrows():
-            _row("GLOBAL_MARKETPLACE", m, "GLOBAL", "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
-        for c, k in g_c.iterrows():
-            if c in nazioni_specifiche:
-                _row("GLOBAL_COUNTRY", "GLOBAL", c, "GLOBAL", k, _share(k["fatt"], tot["fatt"]))
-        for b, k in g_gb.iterrows():
-            _row("GLOBAL_BRAND", "GLOBAL", "GLOBAL", b, k, _share(k["fatt"], tot["fatt"]))
-        _row("GLOBAL", "GLOBAL", "GLOBAL", "GLOBAL", tot, _share(tot["fatt"], tot["fatt"]))
-
-    if not rows:
+def nazioni_brand_share(venduto: pd.DataFrame, nazione: str, resi_fp: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Share % del Fatturato per brand (clzMappata), per una singola nazione."""
+    cols = ["Brand", "Fatturato", "Share %", "Valore Medio Paio",
+            "Paia spedite", "Paia rese", "Paia nette", "% Reso"]
+    pezzi = [d for d in (_per_nazione(venduto, nazione), _per_nazione(resi_fp, nazione))
+             if d is not None and not d.empty]
+    if not pezzi:
         return pd.DataFrame(columns=cols)
 
-    labels = [p[0] for p in periodi]
-    pos = {lab: i for i, lab in enumerate(labels)}
-    by_key: dict[tuple, dict[str, tuple]] = {}
-    for r in rows:
-        by_key.setdefault((r["Marketplace"], r["Nazione"], r["Brand"], r["Scope"]), {})[r["Anno"]] = (
-            r["Fatturato Netto"], r["Ordini"])
-    for r in rows:
-        i = pos.get(r["Anno"], -1)
-        if i < 0 or i + 1 >= len(labels):
-            continue
-        prev = by_key[(r["Marketplace"], r["Nazione"], r["Brand"], r["Scope"])].get(labels[i + 1])
-        if prev is None:
-            continue
-        r["Var % Fatturato YoY"] = var_pct(r["Fatturato Netto"], prev[0])
-        r["Var % Ordini YoY"] = var_pct(r["Ordini"], prev[1])
+    work = pd.concat(pezzi, ignore_index=True)
+    work["_brand"] = work["clzMappata"].astype(str).replace("", "ALTRO")
+    g = work.groupby("_brand", sort=False, observed=True).agg(
+        **{"Fatturato": ("nettoNetto", "sum"), "Paia spedite": ("paiaSpedite", "sum"),
+           "Paia rese": ("paiaRese", "sum"), "Paia nette": ("paiaNette", "sum")}
+    ).reset_index().rename(columns={"_brand": "Brand"})
 
-    out = pd.DataFrame(rows, columns=cols)
-    anno_order = {label: i for i, (label, _) in enumerate((p[0], p[1]) for p in periodi)}
-    scope_order = {s: i for i, s in enumerate(
-        ["DETAIL", "MARKETPLACE_COUNTRY", "MARKETPLACE_BRAND", "COUNTRY_BRAND",
-         "GLOBAL_MARKETPLACE", "GLOBAL_COUNTRY", "GLOBAL_BRAND", "GLOBAL"])}
-    out["_anno_ord"] = out["Anno"].map(anno_order)
-    out["_scope_ord"] = out["Scope"].map(scope_order)
-    out = out.sort_values(["_anno_ord", "_scope_ord", "Fatturato Netto"],
-                          ascending=[True, True, False], kind="mergesort")
-    return out.drop(columns=["_anno_ord", "_scope_ord"]).reset_index(drop=True)
-
-
-# --------------------------------------------------------------------------------------
-# Log riconciliazione — porting di generateLogRiconciliazioneModulo
-# --------------------------------------------------------------------------------------
-
-def log_df(rows: list[dict], cols_map: dict) -> pd.DataFrame:
-    if not rows:
-        return pd.DataFrame(columns=list(cols_map.values()))
-    df = pd.DataFrame(rows)
-    df = df.rename(columns=cols_map)
-    return df[[c for c in cols_map.values() if c in df.columns]]
+    g["Paia nette"] = g["Paia nette"].clip(lower=0)                 # mai negative
+    tot = float(g["Fatturato"].sum())
+    g["Share %"] = g["Fatturato"] / tot if tot != 0 else 0.0
+    g["% Reso"] = np.where(g["Paia spedite"] > 0, g["Paia rese"] / g["Paia spedite"], 0.0)
+    g["Valore Medio Paio"] = np.where(g["Paia nette"] > 0, g["Fatturato"] / g["Paia nette"], 0.0)
+    return g[cols].sort_values("Fatturato", ascending=False).reset_index(drop=True)

@@ -198,7 +198,7 @@ else:
             )
         with c2:
             if not k.get("revoked_at") and st.button("Revoca", key=f"rev_{k['id']}",
-                                                    use_container_width=True):
+                                                    width="stretch"):
                 r = _rq.patch(
                     _api_supa_url() + f"/rest/v1/api_keys?id=eq.{k['id']}",
                     headers=_api_supa_headers(sess["access_token"]),

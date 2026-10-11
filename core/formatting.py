@@ -41,6 +41,35 @@ def fmt_percent(x, decimals: int = 1) -> str:
     return f"{s}%"
 
 
+def fmt_var(x, decimals: int = 1) -> str:
+    """Variazione relativa con segno: +3,3% / -5,6% (— se non calcolabile, es. base zero)."""
+    if _is_nan(x):
+        return "—"
+    s = f"{abs(x) * 100:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{'-' if x < 0 else '+'}{s}%"
+
+
+def fmt_pp(x, decimals: int = 1) -> str:
+    """Differenza in punti percentuali fra due percentuali (frazioni): +2,0 pp."""
+    if _is_nan(x):
+        return "—"
+    s = f"{abs(x) * 100:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{'-' if x < 0 else '+'}{s} pp"
+
+
+def etichetta_periodo(start, end, indietro: int = 0, lunga: bool = False) -> str:
+    """Etichetta di un periodo spostato di `indietro` anni.
+
+    Breve (tabelle, nomi di colonna): l'anno dell'ultima data del periodo, es. "2026" per 01/11/2025 →
+    31/10/2026 e "2025" per il precedente.
+    Lunga (grafici): "2025/26" se il periodo è a cavallo d'anno, così novembre 2025 non sembra 2026;
+    uguale alla breve se il periodo sta in un solo anno solare."""
+    y0, y1 = start.year - indietro, end.year - indietro
+    if not lunga or y0 == y1:
+        return str(y1)
+    return f"{y0}/{str(y1)[-2:]}"
+
+
 def fmt_number(x, decimals: int = 0) -> str:
     if _is_nan(x):
         return "—"

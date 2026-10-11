@@ -1,7 +1,15 @@
 """
-Metriche globali, KPI e gestione del periodo di riferimento.
-Porting di: calculateGlobalMetricsDetailed, computeChannelKPI, contaPerCanale,
-getPeriodBounds, isDateInPeriod, applyPeriodBoundToReturns (helpers.gs).
+Metriche globali e KPI — UNICA definizione dei numeri mostrati da app, API ed export.
+
+Terminologia (vale per tutto il progetto):
+- *venduto*: righe con Data Pagamento nel periodo. Un reso conta nel venduto solo se la sua
+  Data Reso cade nello stesso periodo; altrimenti la riga resta SPEDITA.
+- *resi fuori periodo*: resi con Data Reso nel periodo ma vendita fuori dal periodo. Un reso
+  caricato prima del suo ordine è un ordine reale (ha la sua Data Pagamento): segue le stesse
+  regole di tutti gli altri.
+  Vivono in un DataFrame a parte, con valori già negativi (nettoNetto = −netto del reso).
+
+    Fatturato = fatturato netto del venduto (spedito − resi nel periodo) − resi fuori periodo
 """
 
 from __future__ import annotations
@@ -9,65 +17,15 @@ from __future__ import annotations
 import pandas as pd
 
 
-def get_period_bounds(df: pd.DataFrame):
-    """min/max di dataVendita tra le righe con data valida. -> (start, end) Timestamp o None."""
-    valid = df["dataVendita"].dropna()
-    if valid.empty:
-        return None, None
-    return valid.min(), valid.max()
-
-
-def is_date_in_period(date, period_start, period_end) -> bool:
-    """Vero se `date` è dentro [start, end]. Se data mancante o periodo non determinabile -> True
-    (stesso comportamento "permissivo" dell'originale)."""
-    if pd.isna(date):
-        return True
-    if period_start is None or period_end is None:
-        return True
-    return period_start <= date <= period_end
-
-
-def apply_period_bound_to_returns(df: pd.DataFrame, period_start, period_end) -> pd.DataFrame:
-    """
-    Normalizza i resi nativi (isReso=True) rispetto al periodo: se dataReso cade FUORI dal
-    periodo, la riga torna Spedito puro. Muta e ritorna il DataFrame (in-place sulle colonne).
-    Va chiamata SUBITO dopo process_dataset e PRIMA di ogni altro calcolo.
-    """
-    if period_start is None or period_end is None:
-        return df
-
-    in_period = df["dataReso"].apply(lambda d: is_date_in_period(d, period_start, period_end))
-    revert_mask = df["isReso"] & (~in_period)
-
-    df.loc[revert_mask, "isReso"] = False
-    df.loc[revert_mask, "paiaRese"] = 0.0
-    df.loc[revert_mask, "paiaNette"] = df.loc[revert_mask, "paiaSpedite"]
-    df.loc[revert_mask, "nettoReso"] = 0.0
-    df.loc[revert_mask, "nettoNetto"] = df.loc[revert_mask, "nettoSpedito"]
-    df.loc[revert_mask, "lordoReso"] = 0.0
-    df.loc[revert_mask, "lordoNetto"] = df.loc[revert_mask, "lordoSpedito"]
-    return df
-
-
-def conta_per_canale(df: pd.DataFrame) -> dict:
-    """Diagnostica rapida righe/ordini per canale DIRETTO vs ESTERNA."""
-    if df.empty:
-        return {"righeDiretti": 0, "righeEsterni": 0, "ordiniDiretti": 0, "ordiniEsterni": 0}
-    est = df[df["tipoSpedizione"] == "ESTERNA"]
-    dir_ = df[df["tipoSpedizione"] != "ESTERNA"]
-    return {
-        "righeDiretti": len(dir_), "righeEsterni": len(est),
-        "ordiniDiretti": dir_.loc[dir_["ordineId"] != "", "ordineId"].nunique(),
-        "ordiniEsterni": est.loc[est["ordineId"] != "", "ordineId"].nunique(),
-    }
-
-
 def _block(df: pd.DataFrame) -> dict:
-    if df.empty:
-        return {"lordo": 0.0, "netto": 0.0, "paiaSped": 0.0, "paiaRes": 0.0, "paiaNet": 0.0, "ordini": 0}
+    if df is None or df.empty:
+        return {"lordo": 0.0, "netto": 0.0, "nettoSped": 0.0, "nettoRes": 0.0,
+                "paiaSped": 0.0, "paiaRes": 0.0, "paiaNet": 0.0, "ordini": 0}
     return {
         "lordo": float(df["lordoSpedito"].sum()),
         "netto": float(df["nettoNetto"].sum()),
+        "nettoSped": float(df["nettoSpedito"].sum()),
+        "nettoRes": float(df["nettoReso"].sum()),
         "paiaSped": float(df["paiaSpedite"].sum()),
         "paiaRes": float(df["paiaRese"].sum()),
         "paiaNet": float(df["paiaNette"].sum()),
@@ -76,30 +34,69 @@ def _block(df: pd.DataFrame) -> dict:
 
 
 def calculate_global_metrics_detailed(df: pd.DataFrame) -> dict:
-    """Ritorna {tot, dir, est} con lordo/netto/paiaSped/paiaRes/paiaNet/ordini."""
-    if df.empty:
-        empty = _block(df)
-        return {"tot": empty, "dir": empty.copy(), "est": empty.copy()}
+    """Ritorna {tot, dir, est} con lordo/netto/nettoSped/nettoRes/paiaSped/paiaRes/paiaNet/ordini."""
+    if df is None or df.empty:
+        return {"tot": _block(df), "dir": _block(df), "est": _block(df)}
     est = df[df["tipoSpedizione"] == "ESTERNA"]
     dir_ = df[df["tipoSpedizione"] != "ESTERNA"]
     return {"tot": _block(df), "dir": _block(dir_), "est": _block(est)}
 
 
-def compute_channel_kpi(df: pd.DataFrame, standalone_df: pd.DataFrame, predicate=None) -> dict:
+def kpi_reali(venduto: pd.DataFrame, resi_fp: pd.DataFrame | None) -> dict:
+    """KPI di un sottoinsieme di dati: la definizione canonica di Fatturato e derivati.
+
+    Denominatori dei % reso: paia spedite / netto spedito del solo venduto del periodo.
     """
-    KPI di sintesi (Fatturato Netto Reale, Ordini, Paia Nette, Valore Medio Paio, % Reso)
-    per un sottoinsieme di dati. `standalone_df` sono i rimborsi extra (esitoResi.standalone),
-    sempre sommati al netto per ottenere il fatturato realmente rettificato.
-    """
-    filtered = df[predicate(df)] if predicate is not None else df
-    filtered_standalone = standalone_df[predicate(standalone_df)] if (predicate is not None and not standalone_df.empty) else standalone_df
+    m = _block(venduto)
+    r = _block(resi_fp)
 
-    m = calculate_global_metrics_detailed(filtered)["tot"]
-    m_resi = calculate_global_metrics_detailed(filtered_standalone)["tot"] if not filtered_standalone.empty else _block(filtered_standalone)
+    fatt_reale = m["netto"] + r["netto"]              # r["netto"] è negativo
+    # le paia nette non possono essere negative: succede quando per quella fetta ci sono solo resi di
+    # vendite fuori periodo (spedite 0, rese 17 ⇒ −17): si mostra 0
+    paia_nette = max(0.0, m["paiaNet"] + r["paiaNet"])
+    paia_rese = m["paiaRes"] + r["paiaRes"]
+    resi_valore = m["nettoRes"] + r["nettoRes"]
 
-    fatt_reale = m["netto"] + m_resi["netto"]
-    val_medio = fatt_reale / m["paiaNet"] if m["paiaNet"] > 0 else 0.0
-    perc_reso = m["paiaRes"] / m["paiaSped"] if m["paiaSped"] > 0 else 0.0
+    return {
+        "fattReale": fatt_reale,
+        "lordo": m["lordo"],
+        "nettoSpedito": m["nettoSped"],
+        "resiPeriodo": m["nettoRes"],                  # resi di vendite del periodo
+        "resiFuoriPeriodo": r["nettoRes"],             # resi di vendite fuori periodo (valore positivo)
+        "ordini": m["ordini"],
+        # Scontrino Medio = fatturato netto spedito per ordine (valore di un ordine alla spedizione,
+        # prima dei resi): rapporto, quindi coerente a qualunque livello di dettaglio
+        "scontrinoMedio": m["nettoSped"] / m["ordini"] if m["ordini"] > 0 else 0.0,
+        "paiaSped": m["paiaSped"],
+        "paiaResePeriodo": m["paiaRes"],
+        "paiaReseFuoriPeriodo": r["paiaRes"],
+        "paiaRes": paia_rese,
+        "paiaNette": paia_nette,
+        "valMedio": fatt_reale / paia_nette if paia_nette > 0 else 0.0,
+        "percReso": paia_rese / m["paiaSped"] if m["paiaSped"] > 0 else 0.0,
+        "percResoValore": resi_valore / m["nettoSped"] if m["nettoSped"] > 0 else 0.0,
+    }
 
-    return {"fattReale": fatt_reale, "ordini": m["ordini"], "paiaNette": m["paiaNet"],
-            "valMedio": val_medio, "percReso": perc_reso}
+
+def kpi_per_canale(venduto: pd.DataFrame, resi_fp: pd.DataFrame | None) -> dict:
+    """{tot, dir, est} → kpi_reali per ciascun canale (DIRETTO / ESTERNA)."""
+    def split(df, esterna: bool):
+        if df is None or df.empty:
+            return df
+        mask = df["tipoSpedizione"] == "ESTERNA"
+        return df[mask] if esterna else df[~mask]
+
+    return {
+        "tot": kpi_reali(venduto, resi_fp),
+        "dir": kpi_reali(split(venduto, False), split(resi_fp, False)),
+        "est": kpi_reali(split(venduto, True), split(resi_fp, True)),
+    }
+
+
+def compute_channel_kpi(df: pd.DataFrame, resi_fp_df: pd.DataFrame, predicate=None) -> dict:
+    """KPI di un sottoinsieme (es. un marketplace) del venduto e dei resi fuori periodo."""
+    if predicate is not None:
+        df = df[predicate(df)]
+        if resi_fp_df is not None and not resi_fp_df.empty:
+            resi_fp_df = resi_fp_df[predicate(resi_fp_df)]
+    return kpi_reali(df, resi_fp_df)

@@ -106,6 +106,16 @@ def _css() -> str:
     border-right: 1px solid {t["border"]};
 }}
 [data-testid="stSidebar"] * {{ font-family: {t["font"]}; }}
+/* Le icone di Streamlit sono un font a ligature ("keyboard_arrow_down"): se il font di testo le
+   sovrascrive si vede il nome dell'icona al posto del simbolo. */
+[data-testid="stIconMaterial"], [data-testid="stSidebar"] [data-testid="stIconMaterial"],
+span[class*="material-icons"], span[class*="material-symbols"] {{
+    font-family: "Material Symbols Rounded", "Material Symbols Outlined" !important;
+    font-weight: 400 !important; font-style: normal !important;
+    text-transform: none !important; letter-spacing: normal !important;
+    white-space: nowrap !important;
+    font-feature-settings: "liga" !important;
+}}
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 {{
     font-size: .95rem; font-weight: 700; letter-spacing: .02em; color: {t["text"]};
 }}
@@ -141,9 +151,12 @@ def _css() -> str:
 .ds-caption {{ color: {t["muted"]}; font-size: .8rem; margin: 2px 0 10px; }}
 
 /* ---------- Card KPI ---------- */
-.ds-cards {{ display: flex; gap: 14px; margin: 10px 0 6px; }}
+.ds-cards {{
+    display: grid; gap: 14px; margin: 10px 0 6px;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}}
 .ds-card {{
-    flex: 1 1 0; min-width: 0; background: {t["card"]};
+    min-width: 0; overflow: hidden; background: {t["card"]};
     border: 1px solid {t["border"]}; border-radius: 12px;
     padding: 14px 16px 12px;
     transition: background .15s ease, border-color .15s ease;
@@ -151,11 +164,14 @@ def _css() -> str:
 .ds-card:hover {{ background: {t["card_hover"]}; border-color: {t["accent"]}; }}
 .ds-card .ds-label {{
     font-size: .72rem; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .06em; color: {t["muted"]}; margin: 0 0 6px; white-space: nowrap;
+    letter-spacing: .06em; color: {t["muted"]}; margin: 0 0 6px;
+    line-height: 1.3; min-height: 2.6em;
+    white-space: normal; overflow-wrap: anywhere;
 }}
 .ds-card .ds-value {{
-    font-size: 1.45rem; font-weight: 800; color: {t["text"]};
-    font-variant-numeric: tabular-nums; margin: 0;
+    font-size: clamp(1.05rem, 1.25vw + .45rem, 1.45rem); font-weight: 800; color: {t["text"]};
+    font-variant-numeric: tabular-nums; margin: 0; line-height: 1.2;
+    white-space: normal; overflow-wrap: anywhere;
 }}
 .ds-card .ds-delta {{ font-size: .8rem; font-weight: 600; margin: 4px 0 0; }}
 
@@ -200,10 +216,26 @@ def _css() -> str:
 [data-testid="stMetricValue"] {{ font-variant-numeric: tabular-nums; }}
 
 /* ---------- Plotly: card attorno al grafico ---------- */
-.ds-chart {{
+/* la card è il grafico stesso (un div markdown aperto/chiuso a parte non avvolgeva nulla) */
+[data-testid="stPlotlyChart"] {{
     background: {t["surface"]}; border: 1px solid {t["border"]};
-    border-radius: 12px; padding: 6px 10px 2px; margin: 8px 0 10px;
+    border-radius: 12px; padding: 8px 10px 4px; margin: 8px 0 10px; overflow: hidden;
 }}
+
+/* ---------- Barra periodo (sempre visibile in alto) ---------- */
+/* il contenitore con key è avvolto da uno stLayoutWrapper: è questo a dover restare "appiccicato" */
+[data-testid="stLayoutWrapper"]:has(> .st-key-topbar) {{
+    position: sticky; top: 3.1rem; z-index: 990;
+}}
+.st-key-topbar {{
+    background: {t["surface"]}; border: 1px solid {t["border"]};
+    border-radius: 12px; padding: 10px 14px 4px; margin: 0 0 10px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+}}
+.st-key-topbar [data-testid="stForm"] {{ border: none; padding: 0; }}
+.st-key-topbar button {{ white-space: nowrap; }}
+.st-key-topbar [data-testid="stWidgetLabel"] p {{ font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .05em; }}
 
 /* ---------- Pill / badge ---------- */
 .ds-pill {{
@@ -274,7 +306,7 @@ def metric_cards(cards: list[dict], n_cols: int | None = None) -> None:
 
 def data_table(df, col_config: dict | None = None, *, key: str | None = None) -> None:
     """Tabella dati standard dell'app (st.dataframe già stilizzato dal CSS)."""
-    st.dataframe(df, hide_index=True, use_container_width=True,
+    st.dataframe(df, hide_index=True, width="stretch",
                  column_config=col_config or {}, key=key)
 
 
@@ -294,12 +326,16 @@ def style_fig(fig, y_title: str | None = None):
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Inter, Segoe UI, system-ui, sans-serif",
                   color=t["text"], size=13),
-        margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        title_text="",                            # il titolo è nella section() della pagina
+        margin=dict(l=10, r=40, t=46, b=10),
+        # legenda in alto, in uno spazio riservato (senza titolo del grafico): in basso finiva
+        # sopra il titolo dell'asse X e le etichette ruotate
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0, title_text="",
+                    font=dict(size=12)),
         colorway=SERIES,
     )
-    fig.update_xaxes(gridcolor=t["grid"], zerolinecolor=t["grid"])
-    fig.update_yaxes(gridcolor=t["grid"], zerolinecolor=t["grid"])
+    fig.update_xaxes(gridcolor=t["grid"], zerolinecolor=t["grid"], automargin=True, title_standoff=12)
+    fig.update_yaxes(gridcolor=t["grid"], zerolinecolor=t["grid"], automargin=True, title_standoff=12)
     if y_title:
         fig.update_yaxes(title_text=y_title)
     return fig
@@ -308,9 +344,7 @@ def style_fig(fig, y_title: str | None = None):
 def chart(fig, *, y_title: str | None = None) -> None:
     """Plotly chart con card attorno: ds.style_fig + container + st.plotly_chart."""
     style_fig(fig, y_title)
-    st.markdown('<div class="ds-chart">', unsafe_allow_html=True)
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def pill(text: str) -> None:
@@ -319,5 +353,6 @@ def pill(text: str) -> None:
 
 def it_num(x: float, decimali: int = 0) -> str:
     """Numero in stile italiano: 1.234.567,8 (per metric_cards)."""
+    x = 0.0 if round(x, decimali) == 0 else x          # niente "-0,00"
     s = f"{x:,.{decimali}f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")

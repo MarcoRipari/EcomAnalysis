@@ -10,16 +10,17 @@ idempotente: le righe già presenti vengono ignorate, non duplicate.
 
 Upload DATASET -> INSERT (stato iniziale: Spedito, o Reso se il file lo marca già così).
 Upload RESI     -> per ogni riga, cerca la corrispondente con la cascata a due chiavi di
-                    reconciler.py (prima ordine+riga+sku+taglia, poi il composito
+                    cascata (prima ordine+riga+sku+taglia, poi il composito
                     mkp+naz+acquirente+sku+taglia+importo), su TUTTE le righe (Spedito e Reso):
                     già Reso -> duplicato, no-op; Spedito -> UPDATE a Reso; nessuna riga ->
-                    insert standalone (rimborso extra). Includere anche le righe già Reso nella
+                    il reso viene aggiunto come ordine reale (con la sua data vendita e la
+                    sua data reso; is_rimborso_extra=1 ricorda che l'ordine non era nel DB e
+                    verrà assorbito se il DATASET arriva dopo). Includere anche le righe già Reso nella
                     ricerca è ciò che rende il ricarico RESI idempotente.
 
 Query per range di date: "venduto nel periodo" = data_vendita nel range (un reso il cui
 data_reso NON è nello stesso range conta come spedito puro per quel periodo); "reso extra nel
-periodo" = data_reso nel range ma vendita fuori range (o riga standalone) — feed diretto per
-compute_channel_kpi/report_builders, che restano quindi INVARIATI rispetto alla versione a file.
+periodo" = data_reso nel range ma vendita fuori range = "resi fuori periodo". Fatturato = venduto - resi nel periodo - resi fuori periodo (core/metrics.py).
 """
 
 from __future__ import annotations
@@ -27,11 +28,13 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from collections import deque
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from . import correzioni
 
 DEFAULT_DB_PATH = "data/ecombi.db"
 
@@ -54,12 +57,23 @@ CREATE INDEX IF NOT EXISTS idx_key_ordine ON righe(key_ordine, status);
 CREATE INDEX IF NOT EXISTS idx_key_composito ON righe(key_composito, status);
 CREATE INDEX IF NOT EXISTS idx_data_vendita ON righe(data_vendita);
 CREATE INDEX IF NOT EXISTS idx_data_reso ON righe(data_reso);
+CREATE INDEX IF NOT EXISTS idx_sku13 ON righe(sku13);
 
 CREATE TABLE IF NOT EXISTS log_match (
     ts TEXT, fonte_file TEXT, esito TEXT,
     ordine_id TEXT, ordine_id_resi TEXT, sku13 TEXT, key_comp TEXT, modalita TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_log_fonte ON log_match(fonte_file);
+
+CREATE TABLE IF NOT EXISTS regole_correzione (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, creata_il TEXT, colonna TEXT, operatore TEXT, cerca TEXT,
+    sostituisci TEXT, modo TEXT, ignora_maiuscole INTEGER, condizioni TEXT, data_da TEXT, data_a TEXT,
+    attiva INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS log_correzioni (
+    ts TEXT, colonna TEXT, operatore TEXT, cerca TEXT, sostituisci TEXT, modo TEXT, condizioni TEXT, righe INTEGER
+);
 
 CREATE TABLE IF NOT EXISTS upload_log (
     ts TEXT, fonte_file TEXT, tipo TEXT, righe_nel_file INTEGER,
@@ -96,7 +110,7 @@ def _key_composito_series(df: pd.DataFrame) -> pd.Series:
     nulla. Eliminato anche il guard sulla whitelist: il match composito vale per tutti i
     marketplace (per gli acquirenti anonimi è semplicemente più selettivo sul resto della
     chiave, e la regola resta: match trovato -> RESO no-op / SPEDITO converti; nessun match ->
-    standalone).
+    reso aggiunto senza ordine).
     """
     lordo_cents = (df["lordoSpedito"].astype(float) * 100).round().astype("int64").astype(str)
     return (df["mkp"].astype(str) + "|" + df["nazione"].astype(str) + "|" +
@@ -219,6 +233,43 @@ def _pop_fifo(idx: dict, key: str, consumed_now: set) -> tuple[str | None, str |
 # Upload DATASET
 # --------------------------------------------------------------------------------------
 
+def _unisci_resi_senza_ordine(conn: sqlite3.Connection, key_ordine, key_composito, row_id) -> set[int]:
+    """Abbina le righe del DATASET ai resi caricati prima dell'ordine (is_rimborso_extra=1), con la
+    stessa cascata di upsert_resi (ordine+riga+sku+taglia, poi chiave composita; FIFO). Le righe
+    abbinate cambiano id e tornano righe normali. Ritorna le posizioni del DATASET da NON inserire."""
+    if conn.execute("SELECT 1 FROM righe WHERE is_rimborso_extra=1 LIMIT 1").fetchone() is None:
+        return set()
+
+    def indice(col: str, keys) -> dict:
+        idx: dict[str, deque] = {}
+        for chunk in _chunked(list(set(keys))):
+            q = (f"SELECT id, {col} FROM righe WHERE is_rimborso_extra=1 AND {col} IN "
+                 f"({','.join('?' * len(chunk))}) ORDER BY rowid")
+            for rid, k in conn.execute(q, chunk):
+                idx.setdefault(k, deque()).append(rid)
+        return idx
+
+    saltare: set[int] = set()
+    coppie: list[tuple[str, str]] = []          # (id nuovo, id esistente)
+    usati: set[str] = set()
+    for col, keys in (("key_ordine", key_ordine), ("key_composito", key_composito)):
+        idx = indice(col, [k for i, k in enumerate(keys) if i not in saltare])
+        for j, k in enumerate(keys):
+            if j in saltare:
+                continue
+            bucket = idx.get(k)
+            while bucket:
+                cand = bucket.popleft()
+                if cand not in usati:
+                    usati.add(cand)
+                    saltare.add(j)
+                    coppie.append((row_id[j], cand))
+                    break
+    if coppie:
+        conn.executemany("UPDATE OR IGNORE righe SET id=?, is_rimborso_extra=0 WHERE id=?", coppie)
+    return saltare
+
+
 def upsert_dataset(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, progress=None) -> dict:
     """df = output di engine.process_dataset() su un file DATASET. Ritorna statistiche upload.
 
@@ -229,6 +280,7 @@ def upsert_dataset(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, 
     attuale del DB romperebbe l'idempotenza (ogni ricarico genererebbe id sempre nuovi)."""
     if df.empty:
         return {"righe_nel_file": 0, "righe_nuove": 0, "righe_gia_presenti": 0}
+    df = correzioni.applica_regole_df(conn, df)   # regole di correzione salvate (es. UNITED KIN → GB)
 
     key_ordine = _key_ordine_series(df).to_numpy()
     key_composito = _key_composito_series(df).to_numpy()
@@ -236,9 +288,17 @@ def upsert_dataset(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, 
     occurrence = content_hash.groupby(content_hash).cumcount()
     row_id = (content_hash + "#" + occurrence.astype(str)).to_numpy()
 
-    now = datetime.utcnow().isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
     status = np.where(df["isReso"].to_numpy(), "Reso", "Spedito")
     records = _build_records(df, row_id, key_ordine, key_composito, status, 0, None, fonte_file, now)
+
+    # Un reso caricato PRIMA del suo ordine è già una riga completa (vendita + reso, con le sue
+    # date): quando arriva il DATASET con quell'ordine non va inserita una seconda riga, altrimenti
+    # la vendita sarebbe contata due volte. La riga esistente prende l'id della riga del DATASET
+    # (così il ricarico dello stesso file resta idempotente) e smette di essere "senza ordine".
+    saltare = _unisci_resi_senza_ordine(conn, key_ordine, key_composito, row_id)
+    if saltare:
+        records = [r for i, r in enumerate(records) if i not in saltare]
 
     prima = conn.execute("SELECT COUNT(*) FROM righe").fetchone()[0]
     _executemany_chunked(conn, _INSERT_SQL, records, progress=progress)
@@ -266,18 +326,19 @@ def upsert_resi(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, pro
       2. mkp|nazione|acquirente|sku13|taglia|lordo_in_centesimi
     Riga trovata e già 'Reso'  -> duplicato, NO-OP (rende il ricarico idempotente).
     Riga trovata e 'Spedito'   -> UPDATE a 'Reso' con data_reso e matched_via.
-    Nessuna riga (a nessuno stato) con nessuna delle due chiavi -> INSERT standalone
-    (rimborso extra).
+    Nessuna riga (a nessuno stato) con nessuna delle due chiavi -> INSERT del reso come ordine
+    reale (vendita + reso con le date del file), is_rimborso_extra=1.
     """
-    esito = {"convertiti": 0, "duplicati": 0, "standalone": 0}
+    esito = {"convertiti": 0, "duplicati": 0, "senza_ordine": 0}
     if df.empty:
         return esito
+    df = correzioni.applica_regole_df(conn, df)   # stesse regole del DATASET: le chiavi di match restano coerenti
 
     key_ordine_resi = _key_ordine_series(df).to_numpy()
     key_composito_resi = _key_composito_series(df).to_numpy()
     data_reso_fmt = _fmt_date_series(df["dataReso"])  # precomputato una volta, non per-riga in loop
     n = len(df)
-    now = datetime.utcnow().isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
     log_rows = []
 
     ordine_id_arr = df["ordineId"].to_numpy()
@@ -287,7 +348,7 @@ def upsert_resi(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, pro
     matched_modalita: list[str] = []
     matched_data_reso: list[str | None] = []
     remaining_positions: list[int] = []
-    standalone_positions: list[int] = []
+    senza_ordine_positions: list[int] = []
     consumed_now: set[str] = set()
 
     def _duplicato(j: int, k_comp: str, modalita: str):
@@ -320,7 +381,7 @@ def upsert_resi(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, pro
             row_id, status = _pop_fifo(idx_comp, k_comp, consumed_now)
             if row_id is None:
                 # nessuna riga nel DB (a qualunque stato) con queste chiavi: reso senza spedito noto
-                standalone_positions.append(j)
+                senza_ordine_positions.append(j)
             else:
                 consumed_now.add(row_id)
                 if status == "Reso":
@@ -342,25 +403,25 @@ def upsert_resi(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, pro
             log_rows.append((now, fonte_file, "convertito", None, None, None, None, mv))
         esito["convertiti"] = len(matched_ids)
 
-    # --- INSERT righe standalone (rimborso extra) ---
-    if standalone_positions:
-        st = df.iloc[standalone_positions].reset_index(drop=True)
-        st_key_ordine = key_ordine_resi[standalone_positions]
-        st_key_comp = key_composito_resi[standalone_positions]
+    # --- INSERT dei resi senza ordine nel DB ---
+    if senza_ordine_positions:
+        st = df.iloc[senza_ordine_positions].reset_index(drop=True)
+        st_key_ordine = key_ordine_resi[senza_ordine_positions]
+        st_key_comp = key_composito_resi[senza_ordine_positions]
         st_hash = _content_hash_series(st)
         occ = st_hash.groupby(st_hash).cumcount()
         st_id = ("REXTRA-" + st_hash + "#" + occ.astype(str)).to_numpy()
 
         records = _build_records(st, st_id, st_key_ordine, st_key_comp, ["Reso"] * len(st), 1,
-                                  "STANDALONE", fonte_file, now)
+                                  "SENZA_ORDINE", fonte_file, now)
         st_ordine_id = st["ordineId"].to_numpy()
         st_sku13 = st["sku13"].to_numpy()
         log_rows.extend(
-            (now, fonte_file, "standalone", oid, oid, str(sku), kcomp, "STANDALONE")
+            (now, fonte_file, "senza_ordine", oid, oid, str(sku), kcomp, "SENZA_ORDINE")
             for oid, sku, kcomp in zip(st_ordine_id, st_sku13, st_key_comp)
         )
         _executemany_chunked(conn, _INSERT_SQL, records, progress=progress)
-        esito["standalone"] = len(standalone_positions)
+        esito["senza_ordine"] = len(senza_ordine_positions)
 
     if log_rows:
         conn.executemany(
@@ -370,14 +431,14 @@ def upsert_resi(conn: sqlite3.Connection, df: pd.DataFrame, fonte_file: str, pro
     conn.execute(
         "INSERT INTO upload_log (ts, fonte_file, tipo, righe_nel_file, convertiti, duplicati, standalone) "
         "VALUES (?,?,?,?,?,?,?)",
-        (now, fonte_file, "RESI", len(df), esito["convertiti"], esito["duplicati"], esito["standalone"]),
+        (now, fonte_file, "RESI", len(df), esito["convertiti"], esito["duplicati"], esito["senza_ordine"]),
     )
     conn.commit()
     return esito
 
 
 # --------------------------------------------------------------------------------------
-# Query per range di date — sostituisce run_pipeline: ritorna DataFrame nella stessa forma
+# Query per range di date: ritorna DataFrame nella stessa forma
 # prodotta da engine.process_dataset(), pronti per metrics.py / report_builders.py invariati.
 # --------------------------------------------------------------------------------------
 
@@ -398,6 +459,9 @@ def _rows_to_df(rows, cols) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=cols)
     df = df.rename(columns=_RENAME)
     if df.empty:
+        # le pagine usano .dt sulle date anche quando il DataFrame è vuoto (es. nessun reso fuori periodo)
+        df["dataVendita"] = pd.Series(dtype="datetime64[ns]")
+        df["dataReso"] = pd.Series(dtype="datetime64[ns]")
         return df
     df["dataVendita"] = pd.to_datetime(df["data_vendita"], errors="coerce")
     df["dataReso"] = pd.to_datetime(df["data_reso"], errors="coerce")
@@ -408,8 +472,8 @@ def _rows_to_df(rows, cols) -> pd.DataFrame:
 
 
 def _finalize_period_df(df: pd.DataFrame, period_start, period_end) -> pd.DataFrame:
-    """Applica la semantica 'reso conta solo se data_reso è nello stesso periodo' (equivalente
-    query-time di apply_period_bound_to_returns) e ricostruisce le colonne derivate che
+    """Applica la semantica 'reso conta solo se data_reso è nello stesso periodo' (applicata a
+    query-time) e ricostruisce le colonne derivate che
     report_builders/metrics si aspettano."""
     if df.empty:
         for c in ("paiaSpedite", "paiaRese", "paiaNette", "nettoSpedito", "nettoReso", "nettoNetto",
@@ -437,11 +501,12 @@ def _finalize_period_df(df: pd.DataFrame, period_start, period_end) -> pd.DataFr
                              "lordo_spedito", "status", "is_rimborso_extra"])
 
 
-def query_period(conn: sqlite3.Connection, start, end, perimetro: str = "1") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Ritorna (venduto_df, reso_extra_df) per il periodo [start, end] (date incluse).
+def query_period(conn: sqlite3.Connection, start, end, perimetro: str = "1",
+                 sku_prefix: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Ritorna (venduto_df, resi_fuori_periodo_df) per il periodo [start, end] (date incluse).
     `venduto_df` ha ESATTAMENTE la forma prodotta da engine.process_dataset(): può essere
-    passato invariato a metrics.py/report_builders.py. `reso_extra_df` è l'equivalente di
-    esito_resi['standalone'] atteso da metrics.compute_channel_kpi."""
+    passato invariato a metrics.py/report_builders.py. `resi_fuori_periodo_df` raccoglie i resi del periodo
+    di vendite non appartenenti al periodo; è il secondo argomento di metrics.compute_channel_kpi."""
     start_s, end_s = _fmt_date(start), _fmt_date(end)
     period_start, period_end = pd.Timestamp(start), pd.Timestamp(end)
 
@@ -451,20 +516,29 @@ def query_period(conn: sqlite3.Connection, start, end, perimetro: str = "1") -> 
     elif perimetro == "3":
         where_perimetro = " AND tipo_spedizione='ESTERNA'"
 
-    q_venduto = (f"SELECT {_SELECT_COLS} FROM righe WHERE is_rimborso_extra=0 "
-                 f"AND data_vendita BETWEEN ? AND ?{where_perimetro}")
-    rows_v = conn.execute(q_venduto, (start_s, end_s)).fetchall()
+    # filtro SKU per prefisso (solo lettere/cifre, quindi sicuro per LIKE): sku13 = SKU senza
+    # trattini, primi 13 caratteri; per prefissi più lunghi si confronta l'SKU completo senza trattini.
+    params_sku: tuple = ()
+    if sku_prefix:
+        campo = "sku13" if len(sku_prefix) <= 13 else "REPLACE(sku_full, '-', '')"
+        where_perimetro += f" AND {campo} LIKE ?"
+        params_sku = (sku_prefix + "%",)
+
+    q_venduto = (f"SELECT {_SELECT_COLS} FROM righe WHERE data_vendita BETWEEN ? AND ?{where_perimetro}")
+    rows_v = conn.execute(q_venduto, (start_s, end_s) + params_sku).fetchall()
     venduto = _rows_to_df(rows_v, _SELECT_COLS.split(", "))
     venduto = _finalize_period_df(venduto, period_start, period_end)
 
+    # Resi fuori periodo: data_reso nel range e vendita NON nel range. Un reso caricato senza il
+    # suo ordine è un ordine reale (ha la sua data vendita): segue le stesse regole di tutti.
     q_reso_extra = (f"SELECT {_SELECT_COLS} FROM righe WHERE status='Reso' AND data_reso BETWEEN ? AND ? "
-                     f"AND (data_vendita IS NULL OR data_vendita < ? OR data_vendita > ?){where_perimetro}")
-    rows_r = conn.execute(q_reso_extra, (start_s, end_s, start_s, end_s)).fetchall()
+                     f"AND (data_vendita IS NULL OR data_vendita < ? OR data_vendita > ?)"
+                     f"{where_perimetro}")
+    rows_r = conn.execute(q_reso_extra, (start_s, end_s, start_s, end_s) + params_sku).fetchall()
     reso_extra = _rows_to_df(rows_r, _SELECT_COLS.split(", "))
     if not reso_extra.empty:
-        # per il reso extra tutto l'importo diventa "reso" a prescindere dal range: è
-        # interamente un decremento del fatturato reale del periodo (stessa semantica di
-        # esito.standalone nel motore a file).
+        # per i resi fuori periodo tutto l'importo diventa "reso" a prescindere dal range: è
+        # interamente un decremento del Fatturato del periodo.
         reso_extra["paiaSpedite"] = 0.0
         reso_extra["paiaRese"] = reso_extra["paia_spedite"]
         reso_extra["paiaNette"] = -reso_extra["paia_spedite"]
@@ -487,14 +561,14 @@ def query_period(conn: sqlite3.Connection, start, end, perimetro: str = "1") -> 
 
 
 def get_data_bounds(conn: sqlite3.Connection) -> tuple[str | None, str | None]:
-    row = conn.execute("SELECT MIN(data_vendita), MAX(data_vendita) FROM righe WHERE is_rimborso_extra=0").fetchone()
+    row = conn.execute("SELECT MIN(data_vendita), MAX(data_vendita) FROM righe").fetchone()
     return row[0], row[1]
 
 
 def get_upload_log(conn: sqlite3.Connection, limit: int = 200) -> pd.DataFrame:
     return pd.read_sql_query(
         "SELECT ts, fonte_file, tipo, righe_nel_file, righe_nuove, righe_gia_presenti, "
-        "convertiti, duplicati, standalone FROM upload_log ORDER BY ts DESC LIMIT ?",
+        "convertiti, duplicati, standalone AS senza_ordine FROM upload_log ORDER BY ts DESC LIMIT ?",
         conn, params=(limit,))
 
 
@@ -505,7 +579,9 @@ def get_match_log(conn: sqlite3.Connection, fonte_file: str | None = None, esito
     if fonte_file:
         q += " AND fonte_file = ?"
         params.append(fonte_file)
-    if esito:
+    if esito == "senza_ordine":     # "standalone" è il nome con cui i caricamenti precedenti l'hanno salvato
+        q += " AND esito IN ('senza_ordine', 'standalone')"
+    elif esito:
         q += " AND esito = ?"
         params.append(esito)
     q += " ORDER BY ts DESC LIMIT ?"
@@ -517,7 +593,7 @@ def get_stats(conn: sqlite3.Connection) -> dict:
     tot = conn.execute("SELECT COUNT(*) FROM righe").fetchone()[0]
     spediti = conn.execute("SELECT COUNT(*) FROM righe WHERE status='Spedito'").fetchone()[0]
     resi = conn.execute("SELECT COUNT(*) FROM righe WHERE status='Reso'").fetchone()[0]
-    standalone = conn.execute("SELECT COUNT(*) FROM righe WHERE is_rimborso_extra=1").fetchone()[0]
+    senza_ordine = conn.execute("SELECT COUNT(*) FROM righe WHERE is_rimborso_extra=1").fetchone()[0]
     start, end = get_data_bounds(conn)
-    return {"righe_totali": tot, "spediti": spediti, "resi": resi, "standalone": standalone,
+    return {"righe_totali": tot, "spediti": spediti, "resi": resi, "resi_senza_ordine": senza_ordine,
             "data_min": start, "data_max": end}

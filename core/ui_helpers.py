@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import streamlit as st
 
+from .formatting import etichetta_periodo
+
 
 def guard_pipeline():
     """Ferma il rendering della pagina con un messaggio guida se la pipeline non è pronta."""
     pipe = st.session_state.get("pipeline")
     if pipe is None:
-        st.info("⬅️ Apri **⬆️ Carica Dati**, scegli periodo e perimetro e premi **Genera dati report** per usare questa pagina.")
+        st.info("Scegli periodo e perimetro nella barra in alto e premi **Applica**. "
+                "Se il DB è vuoto, carica i file da **Export & Sistema → Carica Dati**.")
         st.stop()
     return pipe
 
@@ -30,14 +33,14 @@ def image_col(label: str = "Foto"):
     return st.column_config.ImageColumn(label)
 
 
-def period_labels(n: int = 2) -> list[str]:
-    """Etichette-ANNO dei periodi in confronto: anno del periodo scelto (data FINALE)
-    e i relativi -1 e -2. Es. scelto 01/01/2026 → 30/06/2026 ⇒ ["2026", "2025", "2024"].
+def period_labels(n: int = 2, lunghe: bool = False) -> list[str]:
+    """Etichette dei periodi in confronto: l'anno dell'ULTIMA data del periodo scelto e i relativi -1 e -2
+    (es. 01/11/2025 → 31/10/2026 ⇒ ["2026", "2025", "2024"]). Con `lunghe=True` (grafici) un periodo a
+    cavallo d'anno diventa ["2025/26", "2024/25", "2023/24"].
     Fallback (nessun report ancora generato): le vecchie etichette di slot."""
     sel = st.session_state.get("sel_periodo_a")
     if isinstance(sel, (tuple, list)) and len(sel) == 2 and hasattr(sel[1], "year"):
-        y = sel[1].year                       # anno della data finale del periodo scelto
-        anni = [str(y), str(y - 1), str(y - 2)]
+        anni = [etichetta_periodo(sel[0], sel[1], i, lunga=lunghe) for i in range(3)]
         return anni[:n] + [f"Periodo {i + 1}" for i in range(3, n)]
     labels = ["Range selezionato", "Anno precedente", "Due anni precedenti"]
     return labels[:n] + [f"Periodo {i + 1}" for i in range(len(labels), n)]

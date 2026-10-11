@@ -1,6 +1,10 @@
 data/
 venv/
-core/__pycache__/
+__pycache__/
+*.pyc
 .env
 api/.env
 *.env
+.streamlit/secrets.toml
+node_modules/
+.pytest_cache/

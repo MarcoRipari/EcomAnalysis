@@ -20,23 +20,25 @@ st.session_state["pipeline"], generata nella pagina ⬆️ Carica Dati.
 """
 import streamlit as st
 
-from core import auth
+from core import auth, topbar
+from core.design_system import apply_theme
 
 # ---------------------------------------------------------------------------------------
 # Definizione delle pagine (l'ordine nel menu è dato da GRUPPI_MENU)
 # ---------------------------------------------------------------------------------------
-page_carica = st.Page("pages/00_Carica_Dati.py", title="Carica Dati", icon="⬆️", default=True)
-page_dashboard = st.Page("pages/01_Dashboard.py", title="Dashboard", icon="📊")
+page_carica = st.Page("pages/00_Carica_Dati.py", title="Carica Dati", icon="⬆️")
+page_dashboard = st.Page("pages/01_Dashboard.py", title="Dashboard", icon="📊", default=True)
 page_y2y_generale = st.Page("pages/02_Y2Y_Generale.py", title="Y2Y Generale", icon="📈")
-page_y2y_collezioni = st.Page("pages/03_Y2Y_Collezioni.py", title="Y2Y Collezioni", icon="🌳")
-page_y2y_codici = st.Page("pages/04_Y2Y_Codici.py", title="Y2Y Codici", icon="🔢")
-page_carryover = st.Page("pages/05_Carryover.py", title="Carryover", icon="♻️")
-page_taglie = st.Page("pages/06_Taglie.py", title="Taglie per Brand", icon="👟")
-page_analisi_resi = st.Page("pages/07_Analisi_Resi.py", title="Analisi Resi", icon="🔄")
-page_log_riconciliazione = st.Page("pages/08_Log_Riconciliazione.py", title="Log Riconciliazione", icon="🔍")
+page_articoli_collezioni = st.Page("pages/03_Articoli_e_Collezioni.py", title="Articoli & Collezioni", icon="🌳")
+page_canali_mkp = st.Page("pages/04_Canali_Marketplace.py", title="Canali & Marketplace", icon="🛍️")
+page_nazioni = st.Page("pages/05_Nazioni.py", title="Nazioni & Geografia", icon="🌍")
+page_analisi_resi = st.Page("pages/06_Analisi_Resi.py", title="Analisi Resi", icon="🔄")
+page_trova_sku = st.Page("pages/07_Trova_SKU.py", title="Trova SKU", icon="🔎")
+page_taglie = st.Page("pages/08_Taglie.py", title="Taglie per Brand", icon="👟")
 page_sell_through = st.Page("pages/09_Sell_Through.py", title="Sell-Through", icon="📦")
-page_nazioni = st.Page("pages/10_Nazioni.py", title="Nazioni", icon="🌍")
-page_report_unificato = st.Page("pages/11_Report_Unificato.py", title="Report Unificato", icon="🧾")
+page_export = st.Page("pages/10_Export_Dati.py", title="Export Dati", icon="📤")
+page_correzioni = st.Page("pages/13_Correzioni_DB.py", title="Correzioni DB", icon="🛠️")
+page_log_riconciliazione = st.Page("pages/11_Log_Riconciliazione.py", title="Log Riconciliazione", icon="🔍")
 page_account = st.Page("pages/12_Account.py", title="Account e 2FA", icon="🔐")
 
 SUB = "sub"  # voce non cliccabile: semplice sottotitolo visivo dentro un gruppo
@@ -49,30 +51,43 @@ SUB = "sub"  # voce non cliccabile: semplice sottotitolo visivo dentro un gruppo
 # ---------------------------------------------------------------------------------------
 GRUPPI_MENU = [
     {
-        "titolo": "📂 Analisi Dati",
+        "titolo": "📊 Sintesi",
         "espanso": True,
         "voci": [
-            page_carica,
             page_dashboard,
-            (SUB, "Report"),
             page_y2y_generale,
-            page_y2y_collezioni,
-            page_y2y_codici,
-            page_carryover,
-            page_taglie,
-            page_analisi_resi,
-            page_log_riconciliazione,
-            page_sell_through,
-            page_nazioni,
-            page_report_unificato,
         ],
     },
     {
-        "titolo": "⚙️ Account",
-        "espanso": False,
-        "voci": [page_account],
+        "titolo": "📈 Performance",
+        "espanso": True,
+        "voci": [
+            page_canali_mkp,
+            page_nazioni,
+            page_articoli_collezioni,
+        ],
     },
-    # Gruppi futuri: aggiungere qui altri dizionari con la stessa struttura.
+    {
+        "titolo": "👟 Prodotto & Resi",
+        "espanso": True,
+        "voci": [
+            page_trova_sku,
+            page_analisi_resi,
+            page_taglie,
+            page_sell_through,
+        ],
+    },
+    {
+        "titolo": "⚙️ Export & Sistema",
+        "espanso": False,
+        "voci": [
+            page_carica,
+            page_export,
+            page_correzioni,
+            page_log_riconciliazione,
+            page_account,
+        ],
+    },
 ]
 
 _pagine = [voce for gruppo in GRUPPI_MENU for voce in gruppo["voci"] if not isinstance(voce, tuple)]
@@ -98,29 +113,20 @@ with st.sidebar:
                 if isinstance(voce, tuple):
                     st.markdown(f"**{voce[1]}**")
                 else:
-                    st.page_link(voce, use_container_width=True)
-
-    st.divider()
-    pipe = st.session_state.get("pipeline")
-    if pipe is None:
-        st.caption("⚠️ Dati report **non generati**: scegli il periodo in **⬆️ Carica Dati**.")
-    else:
-        _a = st.session_state.get("periodo_a_label", "—")
-        _b = st.session_state.get("periodo_b_label")
-        _per = st.session_state.get("perimetro_label", "—")
-        st.caption(
-            f"✅ Dati pronti\n\n**Periodo**: {_a}"
-            + (f"\n\n**Confronto**: {_b}" if _b else "")
-            + f"\n\n**Perimetro**: {_per}"
-        )
+                    st.page_link(voce, width="stretch")
 
     st.divider()
     st.caption(
         f"👤 **{sess['user'].get('email', 'utente')}** · sessione "
         f"{auth.DURATA_SESSIONE_GIORNI} giorni"
     )
-    if st.button("🚪 Esci", use_container_width=True):
+    if st.button("🚪 Esci", width="stretch"):
         auth.logout(sess)   # revoca il refresh token su Supabase
         st.rerun()          # torna SUBITO alla schermata di login, come al primo accesso
+
+apply_theme()   # CSS del tema valido anche per la barra periodo e per le pagine senza page_setup
+
+# Barra periodo: sempre in alto, su ogni pagina (costruisce st.session_state["pipeline"])
+topbar.render()
 
 pg.run()
