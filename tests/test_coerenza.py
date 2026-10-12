@@ -83,3 +83,46 @@ def test_top_articoli_sommano_al_fatturato_reale(pipe):
     codici = rb.comparativa_codici(pipe.current_data, pipe.old_data, {}, "2026", "2025",
                                    resi_fp_current=pipe.resi_fp_current, resi_fp_old=pipe.resi_fp_old)
     assert codici["Fatturato 2026"].sum() == pytest.approx(totale)
+
+
+def test_report_mensile_coincide_con_singolo_mese_dashboard(conn):
+    """Verifica che un reso a cavallo tra due mesi (vendita a gennaio, reso a febbraio)
+    venga conteggiato a febbraio (mese del reso), sia interrogando il singolo mese che
+    nel report mensile Y2Y del periodo cumulativo."""
+    carica(conn,
+           dataset=[riga("V1", "15/01/2026"),
+                    riga("V2", "20/01/2026"),
+                    riga("V3", "10/02/2026")],
+           resi=[riga("V1", "15/01/2026", data_reso="10/02/2026", stato="Reso")])
+    m_gen = (dt.date(2026, 1, 1), dt.date(2026, 1, 31))
+    m_feb = (dt.date(2026, 2, 1), dt.date(2026, 2, 28))
+    m_tot = (dt.date(2026, 1, 1), dt.date(2026, 2, 28))
+
+    # Singolo mese Gennaio: 2 vendite, 0 resi (il reso è a febbraio)
+    v_gen, s_gen = db.query_period(conn, *m_gen)
+    k_gen = metrics.kpi_reali(v_gen, s_gen)
+    assert k_gen["paiaSped"] == 2 and k_gen["paiaRes"] == 0
+    assert k_gen["paiaNette"] == 2
+    assert k_gen["fattReale"] == pytest.approx(200.0)
+
+    # Singolo mese Febbraio: 1 vendita, 1 reso fuori periodo (V1 venduto a gen)
+    v_feb, s_feb = db.query_period(conn, *m_feb)
+    k_feb = metrics.kpi_reali(v_feb, s_feb)
+    assert k_feb["paiaSped"] == 1 and k_feb["paiaRes"] == 1
+    assert k_feb["paiaNette"] == 0
+    assert k_feb["fattReale"] == pytest.approx(0.0)
+
+    # Periodo cumulativo Gen-Feb: report mensile Y2Y
+    v_tot, s_tot = db.query_period(conn, *m_tot)
+    mesi_df, _ = rb.monthly_season_report(m_tot[0], m_tot[1], [("2026", v_tot, s_tot)])
+
+    # Riga Gennaio nel report deve coincidere con k_gen
+    r_gen = mesi_df[mesi_df["Mese"] == "Gennaio"].iloc[0]
+    assert r_gen["Fatturato 2026"] == pytest.approx(k_gen["fattReale"])
+    assert r_gen["Paia Nette 2026"] == k_gen["paiaNette"]
+
+    # Riga Febbraio nel report deve coincidere con k_feb
+    r_feb = mesi_df[mesi_df["Mese"] == "Febbraio"].iloc[0]
+    assert r_feb["Fatturato 2026"] == pytest.approx(k_feb["fattReale"])
+    assert r_feb["Paia Nette 2026"] == k_feb["paiaNette"]
+

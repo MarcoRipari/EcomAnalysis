@@ -212,43 +212,57 @@ def _mesi_periodo(da, a) -> list[tuple[int, int]]:
 
 def _stats_mensili(venduto: pd.DataFrame, resi_fp: pd.DataFrame | None,
                    mesi: list[tuple[int, int]]) -> dict[tuple[int, int], dict]:
-    """(anno, mese) → metriche del mese. Stessa semantica di monthly_trend: il fatturato
-    reale include i resi fuori periodo attribuiti al mese di dataReso (fallback dataVendita)."""
+    """(anno, mese) → metriche del mese.
+    Le vendite sono attribuite al mese di dataVendita; tutti i resi (sia del venduto con
+    dataReso nel periodo, sia fuori periodo) sono attribuiti al mese di dataReso.
+    In questo modo le metriche mensili della tabella Y2Y coincidono perfettamente con
+    quelle calcolate analizzando il singolo mese in Dashboard."""
     stats = {ym: {"fatturato": 0.0, "paiaSpedite": 0.0, "paiaRese": 0.0, "paiaNette": 0.0,
-                  "nettoSpedito": 0.0, "ordini": 0} for ym in mesi}
+                  "nettoSpedito": 0.0, "nettoReso": 0.0, "ordini": 0} for ym in mesi}
 
     v = venduto
     if v is not None and not v.empty and "dataVendita" in v.columns:
-        v = v[v["dataVendita"].notna()].copy()
-    if v is not None and not v.empty:
-        v["_ym"] = list(zip(v["dataVendita"].dt.year.astype(int),
-                            v["dataVendita"].dt.month.astype(int)))
-        v["_ord"] = v["ordineId"].where(v["ordineId"] != "")
-        g = v.groupby("_ym").agg({"nettoNetto": "sum", "paiaSpedite": "sum", "paiaRese": "sum",
-                                  "paiaNette": "sum", "nettoSpedito": "sum", "_ord": "nunique"})
-        for ym, r in g.iterrows():
-            if ym in stats:
-                stats[ym]["nettoSpedito"] += float(r["nettoSpedito"])
-                stats[ym]["ordini"] = int(r["_ord"])
-                stats[ym]["fatturato"] += float(r["nettoNetto"])
-                stats[ym]["paiaSpedite"] += float(r["paiaSpedite"])
-                stats[ym]["paiaRese"] += float(r["paiaRese"])
-                stats[ym]["paiaNette"] += float(r["paiaNette"])
+        v_sales = v[v["dataVendita"].notna()].copy()
+        if not v_sales.empty:
+            v_sales["_ym"] = list(zip(v_sales["dataVendita"].dt.year.astype(int),
+                                      v_sales["dataVendita"].dt.month.astype(int)))
+            v_sales["_ord"] = v_sales["ordineId"].where(v_sales["ordineId"] != "")
+            g_sales = v_sales.groupby("_ym").agg({
+                "nettoSpedito": "sum", "paiaSpedite": "sum", "_ord": "nunique",
+            })
+            for ym, r in g_sales.iterrows():
+                if ym in stats:
+                    stats[ym]["nettoSpedito"] += float(r["nettoSpedito"])
+                    stats[ym]["paiaSpedite"] += float(r["paiaSpedite"])
+                    stats[ym]["ordini"] = int(r["_ord"])
 
+    # Resi del venduto: attribuiti al mese del reso (se reso effettivo nel periodo)
+    if v is not None and not v.empty and "dataReso" in v.columns:
+        v_resi = v[v["isReso"] & v["dataReso"].notna()].copy()
+        if not v_resi.empty:
+            v_resi["_ym"] = list(zip(v_resi["dataReso"].dt.year.astype(int),
+                                     v_resi["dataReso"].dt.month.astype(int)))
+            g_vr = v_resi.groupby("_ym").agg({"nettoReso": "sum", "paiaRese": "sum"})
+            for ym, r in g_vr.iterrows():
+                if ym in stats:
+                    stats[ym]["nettoReso"] += float(r["nettoReso"])
+                    stats[ym]["paiaRese"] += float(r["paiaRese"])
+
+    # Resi fuori periodo: attribuiti al mese del reso
     s = resi_fp
     if s is not None and not s.empty and "dataReso" in s.columns:
         s = s.copy()
         d = pd.to_datetime(s["dataReso"].fillna(s.get("dataVendita")))
         s["_ym"] = list(zip(d.dt.year.astype(int), d.dt.month.astype(int)))
-        g = s.groupby("_ym").agg({"nettoNetto": "sum", "paiaRese": "sum", "paiaNette": "sum"})
-        for ym, r in g.iterrows():
+        g_s = s.groupby("_ym").agg({"nettoReso": "sum", "paiaRese": "sum"})
+        for ym, r in g_s.iterrows():
             if ym in stats:
-                stats[ym]["fatturato"] += float(r["nettoNetto"])
+                stats[ym]["nettoReso"] += float(r["nettoReso"])
                 stats[ym]["paiaRese"] += float(r["paiaRese"])
-                stats[ym]["paiaNette"] += float(r["paiaNette"])
 
     for st in stats.values():
-        st["paiaNette"] = max(0.0, st["paiaNette"])               # mai negative
+        st["fatturato"] = st["nettoSpedito"] - st["nettoReso"]
+        st["paiaNette"] = max(0.0, st["paiaSpedite"] - st["paiaRese"])               # mai negative
         st["percReso"] = st["paiaRese"] / st["paiaSpedite"] if st["paiaSpedite"] > 0 else 0.0
         st["scontrino"] = st["nettoSpedito"] / st["ordini"] if st["ordini"] > 0 else 0.0
     return stats

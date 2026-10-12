@@ -26,7 +26,12 @@ class Pipeline:
 def build_pipeline_from_db(conn, periodo_current: tuple, periodo_old: tuple | None,
                            perimetro: str = "1", anagrafica: dict | None = None) -> Pipeline:
     """`periodo_current` / `periodo_old` = (start, end) come date/Timestamp/stringa 'YYYY-MM-DD'.
-    `periodo_old` può essere None se non serve un confronto Y2Y."""
+    `periodo_old` può essere None se non serve un confronto Y2Y.
+    Se `anagrafica` non è passata (None), viene caricata direttamente dal DB SQLite.
+    """
+    if anagrafica is None:
+        anagrafica = dbmod.get_anagrafica_dict(conn)
+
     current_data, resi_fp_current = dbmod.query_period(conn, *periodo_current, perimetro)
     if periodo_old is not None:
         old_data, resi_fp_old = dbmod.query_period(conn, *periodo_old, perimetro)

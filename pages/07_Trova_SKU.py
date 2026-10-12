@@ -42,7 +42,7 @@ if venduto.empty and resi_fp.empty:
                 f"{'nel DB' if intero_db else 'nel periodo selezionato'}.", "🔎")
     st.stop()
 
-anagrafica = pipe.anagrafica if pipe is not None else st.session_state.get("anagrafica", {})
+anagrafica = pipe.anagrafica if pipe is not None else (st.session_state.get("anagrafica") or db.get_anagrafica_dict(conn))
 
 # ---------------------------------------------------------------- articoli trovati
 trovati = sk.articoli_trovati(venduto, resi_fp, anagrafica)

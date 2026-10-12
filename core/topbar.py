@@ -55,10 +55,12 @@ def genera(conn, periodo_a: tuple, perimetro_label: str, confronta_2anni: bool,
            data_min: dt.date, data_max: dt.date) -> None:
     """Interroga il DB e aggiorna session_state (pipeline + selezioni usate dalle pagine)."""
     periodo_b = _coperti(periodo_a, data_min, data_max)
+    ss = st.session_state
+    anag = ss.get("anagrafica") or db.get_anagrafica_dict(conn)
+    ss["anagrafica"] = anag
     result = pipeline.build_pipeline_from_db(
         conn, periodo_current=periodo_a, periodo_old=periodo_b,
-        perimetro=PERIMETRI[perimetro_label], anagrafica=st.session_state.get("anagrafica", {}))
-    ss = st.session_state
+        perimetro=PERIMETRI[perimetro_label], anagrafica=anag)
     ss["pipeline"] = result
     ss["perimetro_label"] = perimetro_label
     ss["sel_periodo_a"] = periodo_a

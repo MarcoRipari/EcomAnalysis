@@ -15,6 +15,7 @@ import re
 import sqlite3
 from datetime import date
 
+import numpy as np
 import pandas as pd
 
 from . import db as dbmod
@@ -38,22 +39,68 @@ def cerca(conn: sqlite3.Connection, prefisso: str, periodo: tuple, perimetro: st
 
 
 def _unisci(venduto: pd.DataFrame | None, resi_fp: pd.DataFrame | None) -> pd.DataFrame:
-    """Venduto + resi fuori periodo in un solo frame: mese di vendita per il primo, di reso per il secondo."""
+    """Venduto + resi in un solo frame.
+    Le vendite vanno al mese di dataVendita; i resi (sia del venduto nel periodo,
+    sia fuori periodo) vanno al mese di dataReso."""
     pezzi = []
-    for df, col_data in ((venduto, "dataVendita"), (resi_fp, "dataReso")):
-        if df is None or df.empty:
-            continue
-        w = pd.DataFrame({
-            "Marketplace": df["mkp"].astype(str).to_numpy(),
-            "Nazione": df["nazione"].astype(str).to_numpy(),
-            "Taglia": df["taglia"].astype(str).to_numpy(),
-            "Canale": df["tipoSpedizione"].astype(str).to_numpy(),
-            "SKU": df["sku13"].astype(str).to_numpy(),
-            "Mese": pd.to_datetime(df[col_data], errors="coerce").dt.strftime("%Y-%m").fillna("n.d.").to_numpy(),
+    if venduto is not None and not venduto.empty:
+        # 1. Vendite
+        v_sales = venduto.copy()
+        mese_v = pd.to_datetime(v_sales["dataVendita"], errors="coerce").dt.strftime("%Y-%m").fillna("n.d.").to_numpy()
+        w_sales = pd.DataFrame({
+            "Marketplace": v_sales["mkp"].astype(str).to_numpy(),
+            "Nazione": v_sales["nazione"].astype(str).to_numpy(),
+            "Taglia": v_sales["taglia"].astype(str).to_numpy(),
+            "Canale": v_sales["tipoSpedizione"].astype(str).to_numpy(),
+            "SKU": v_sales["sku13"].astype(str).to_numpy(),
+            "Mese": mese_v,
+            "nettoNetto": v_sales["nettoSpedito"].astype(float).to_numpy(),
+            "nettoSpedito": v_sales["nettoSpedito"].astype(float).to_numpy(),
+            "nettoReso": np.zeros(len(v_sales), dtype=float),
+            "paiaSpedite": v_sales["paiaSpedite"].astype(float).to_numpy(),
+            "paiaRese": np.zeros(len(v_sales), dtype=float),
+            "paiaNette": v_sales["paiaSpedite"].astype(float).to_numpy(),
+        })
+        pezzi.append(w_sales)
+
+        # 2. Resi del venduto
+        v_resi = venduto[venduto["isReso"] & venduto["dataReso"].notna()].copy()
+        if not v_resi.empty:
+            mese_r = pd.to_datetime(v_resi["dataReso"], errors="coerce").dt.strftime("%Y-%m").fillna("n.d.").to_numpy()
+            n_r = v_resi["nettoReso"].astype(float).to_numpy()
+            p_r = v_resi["paiaRese"].astype(float).to_numpy()
+            w_resi = pd.DataFrame({
+                "Marketplace": v_resi["mkp"].astype(str).to_numpy(),
+                "Nazione": v_resi["nazione"].astype(str).to_numpy(),
+                "Taglia": v_resi["taglia"].astype(str).to_numpy(),
+                "Canale": v_resi["tipoSpedizione"].astype(str).to_numpy(),
+                "SKU": v_resi["sku13"].astype(str).to_numpy(),
+                "Mese": mese_r,
+                "nettoNetto": -n_r,
+                "nettoSpedito": np.zeros(len(v_resi), dtype=float),
+                "nettoReso": n_r,
+                "paiaSpedite": np.zeros(len(v_resi), dtype=float),
+                "paiaRese": p_r,
+                "paiaNette": -p_r,
+            })
+            pezzi.append(w_resi)
+
+    # 3. Resi fuori periodo
+    if resi_fp is not None and not resi_fp.empty:
+        col_d = "dataReso" if "dataReso" in resi_fp.columns else "dataVendita"
+        mese_fp = pd.to_datetime(resi_fp[col_d], errors="coerce").dt.strftime("%Y-%m").fillna("n.d.").to_numpy()
+        w_fp = pd.DataFrame({
+            "Marketplace": resi_fp["mkp"].astype(str).to_numpy(),
+            "Nazione": resi_fp["nazione"].astype(str).to_numpy(),
+            "Taglia": resi_fp["taglia"].astype(str).to_numpy(),
+            "Canale": resi_fp["tipoSpedizione"].astype(str).to_numpy(),
+            "SKU": resi_fp["sku13"].astype(str).to_numpy(),
+            "Mese": mese_fp,
         })
         for m in _MISURE:
-            w[m] = df[m].astype(float).to_numpy()
-        pezzi.append(w)
+            w_fp[m] = resi_fp[m].astype(float).to_numpy()
+        pezzi.append(w_fp)
+
     if not pezzi:
         return pd.DataFrame(columns=["Marketplace", "Nazione", "Taglia", "Canale", "SKU", "Mese"] + _MISURE)
     return pd.concat(pezzi, ignore_index=True)

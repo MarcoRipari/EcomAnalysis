@@ -63,10 +63,15 @@ def _stampa_stato(conn) -> None:
     print(f"  Spedite:      {_fmt(stats['spediti'])}")
     print(f"  Rese:         {_fmt(stats['resi'])}")
     print(f"  Resi senza ordine nel DB: {_fmt(stats['resi_senza_ordine'])}")
+    if stats.get("anagrafica_totale"):
+        print(f"  Anagrafica nel DB: {_fmt(stats['anagrafica_totale'])} varianti SKU13 "
+              f"({_fmt(stats.get('anagrafica_modelli', 0))} modelli)")
+    else:
+        print("  Anagrafica:   nessuna anagrafica ancora salvata nel DB.")
     if stats["data_min"]:
         print(f"  Copertura dati (Data Pagamento): dal {stats['data_min']} al {stats['data_max']}")
     else:
-        print("  Nessun dato ancora caricato.")
+        print("  Nessun dato vendite ancora caricato.")
 
 
 def main() -> int:
@@ -77,10 +82,14 @@ def main() -> int:
                    help="File DATASET (CSV); ripetibile per più file")
     p.add_argument("--resi", action="append", default=[], metavar="FILE",
                    help="File RESI (CSV); ripetibile per più file")
-    p.add_argument("--anagrafica", metavar="FILE",
-                   help="File ANAGRAFICA (facoltativo: descrizioni articolo e genere)")
+    p.add_argument("--anagrafica", action="append", default=[], metavar="FILE",
+                   help="File ANAGRAFICA (TSV/CSV); ripetibile per più file (es. 261, 262)")
     p.add_argument("--stato", action="store_true",
                    help="Mostra solo lo stato del DB ed esci (nessuna scrittura)")
+    p.add_argument("--svuota-anagrafica", action="store_true",
+                   help="Svuota solo la tabella anagrafica del DB (senza toccare vendite e resi)")
+    p.add_argument("--elimina-esclusi", action="store_true",
+                   help="Elimina dalla tabella anagrafica gli articoli che violano le regole di esclusione attive")
     p.add_argument("--svuota", action="store_true",
                    help="ZONA PERICOLOSA: svuota completamente il DB PRIMA dell'import")
     args = p.parse_args()
@@ -90,6 +99,18 @@ def main() -> int:
     if args.stato:
         _stampa_stato(conn)
         return 0
+
+    if args.elimina_esclusi:
+        n = db.elimina_articoli_esclusi_anagrafica(conn)
+        print(f"Eliminati {_fmt(n)} articoli che violavano le regole di esclusione attive.")
+        if not args.anagrafica and not args.dataset and not args.resi:
+            return 0
+
+    if args.svuota_anagrafica:
+        db.svuota_anagrafica(conn)
+        print("Anagrafica svuotata dal DB (vendite e resi non toccati).")
+        if not args.anagrafica and not args.dataset and not args.resi:
+            return 0
 
     if args.svuota:
         try:
@@ -101,15 +122,39 @@ def main() -> int:
         if conferma.strip() != "SVUOTA":
             print("Annullato: il DB non è stato toccato.")
             return 1
-        conn.executescript("DELETE FROM righe; DELETE FROM log_match; DELETE FROM upload_log;")
+        conn.executescript("DELETE FROM righe; DELETE FROM log_match; DELETE FROM upload_log; DELETE FROM anagrafica;")
         conn.commit()
         print("DB svuotato.")
+
+    # Caricamento ANAGRAFICA se richiesta
+    if args.anagrafica:
+        mancanti_anag = [f for f in args.anagrafica if not os.path.isfile(f)]
+        if mancanti_anag:
+            print("File anagrafica non trovati: " + ", ".join(mancanti_anag))
+            return 1
+
+        for anag_path in args.anagrafica:
+            nome = os.path.basename(anag_path)
+            print(f"—— ANAGRAFICA: {nome}")
+            records = engine.parse_anagrafica(anag_path, fonte_file=nome)
+            stats = db.upsert_anagrafica(conn, records, fonte_file=nome, progress=_progress)
+            print()
+            msg_escl = f", {_fmt(stats['righe_escluse'])} escluse dalle regole" if stats.get("righe_escluse") else ""
+            print(f"  ✅ {_fmt(stats['righe_nel_file'])} righe nel file: "
+                  f"{_fmt(stats['righe_nuove'])} nuove varianti inserite, "
+                  f"{_fmt(stats['righe_aggiornate'])} varianti esistenti aggiornate/sostituite"
+                  f"{msg_escl}. "
+                  f"Totale articoli in anagrafica: {_fmt(stats['totale_articoli'])}.")
+        n_sinc = db.sincronizza_genere_righe(conn)
+        if n_sinc > 0:
+            print(f"  👟 Sincronizzato genere su {_fmt(n_sinc)} righe vendite/resi nel DB.")
 
     richiesti = [(f, "DATASET") for f in args.dataset] + [(f, "RESI") for f in args.resi]
 
     if not richiesti:
         _stampa_stato(conn)
-        print("Nessun file richiesto: usa --dataset e/o --resi (vedi --help).")
+        if not args.anagrafica:
+            print("Nessun file richiesto: usa --dataset, --resi e/o --anagrafica (vedi --help).")
         return 0
 
     # Verifica esistenza PRIMA di iniziare: meglio fallire subito che a metà import.
@@ -118,7 +163,7 @@ def main() -> int:
         print("File non trovati: " + ", ".join(mancanti))
         return 1
 
-    anagrafica = engine.load_anagrafica(args.anagrafica) if args.anagrafica else {}
+    anagrafica = db.get_anagrafica_dict(conn)
 
     for path, tipo in richiesti:
         nome = os.path.basename(path)
@@ -133,15 +178,19 @@ def main() -> int:
         if tipo == "DATASET":
             stats = db.upsert_dataset(conn, processed, nome, progress=_progress)
             print()
-            print(f"  ✅ {_fmt(stats['righe_nel_file'])} righe nel file, "
+            msg_escl_ds = f", {_fmt(stats['righe_escluse'])} escluse dalle regole" if stats.get("righe_escluse") else ""
+            print(f"  ✅ {_fmt(stats['righe_nel_file'])} righe nel file: "
                   f"{_fmt(stats['righe_nuove'])} nuove, "
-                  f"{_fmt(stats['righe_gia_presenti'])} già presenti (ignorate).")
+                  f"{_fmt(stats['righe_gia_presenti'])} già presenti (ignorate)"
+                  f"{msg_escl_ds}.")
         else:
             stats = db.upsert_resi(conn, processed, nome, progress=_progress)
             print()
+            msg_escl_resi = f", {_fmt(stats['righe_escluse'])} escluse dalle regole" if stats.get("righe_escluse") else ""
             print(f"  ✅ {_fmt(stats['convertiti'])} convertite Spedito→Reso, "
                   f"{_fmt(stats['duplicati'])} già riconciliate (scartate), "
-                  f"{_fmt(stats['senza_ordine'])} resi senza ordine nel DB.")
+                  f"{_fmt(stats['senza_ordine'])} resi senza ordine nel DB"
+                  f"{msg_escl_resi}.")
 
     print()
     _stampa_stato(conn)

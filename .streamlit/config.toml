@@ -1,11 +1,10 @@
-# Tema base dell'app: Streamlit parte in dark; il toggle runtime
-# (core/design_system.py → page_setup) sovrascrive le variabili CSS.
+# Tema base dell'app: Light enterprise (bianco/grigio con accento teal).
 [theme]
-base = "dark"
-primaryColor = "#14B8A6"
-backgroundColor = "#0B1220"
-secondaryBackgroundColor = "#111A2C"
-textColor = "#E7EEF8"
+base = "light"
+primaryColor = "#0D9488"
+backgroundColor = "#F1F5F9"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F1B2D"
 font = "sans serif"
 
 [server]

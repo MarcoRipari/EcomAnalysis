@@ -9,10 +9,10 @@ page_setup("Export Dati", "📤",
 
 pipe = guard_pipeline()
 
-y_curr, y_old = period_labels(2)
+y_curr, y_old = period_labels(2, fiscali=True)
 periodo_a = st.session_state.get("sel_periodo_a")
 
-# periodi dell'export: (etichetta anno, venduto, resi fuori periodo), dal più recente al più vecchio
+# periodi dell'export: (etichetta periodo, venduto, resi fuori periodo), dal più recente al più vecchio
 periodi = [(y_curr, pipe.current_data, pipe.resi_fp_current)]
 righe_info = [f"**{y_curr}**: {st.session_state.get('periodo_a_label', '—')}"]
 if not pipe.old_data.empty or not pipe.resi_fp_old.empty:
@@ -22,7 +22,7 @@ if periodo_a and st.session_state.get("sel_confronta_2anni", False):
     periodo_c = (shift_year(periodo_a[0], -2), shift_year(periodo_a[1], -2))
     data_2, resi_fp_2 = db.query_period(db.connect(), *periodo_c, pipe.perimetro)
     if not data_2.empty or not resi_fp_2.empty:
-        y_2anni = period_labels(3)[2]
+        y_2anni = period_labels(3, fiscali=True)[2]
         periodi.append((y_2anni, data_2, resi_fp_2))
         righe_info.append(f"**{y_2anni}**: {periodo_c[0]} → {periodo_c[1]}")
 
@@ -34,11 +34,11 @@ if not nazioni:
     st.stop()
 
 section("Cosa contiene",
-        caption="Una riga per ogni combinazione di Anno × Mese × SCOPE (DETAIL, MARKETPLACE_COUNTRY, "
+        caption="Una riga per ogni combinazione di Periodo × Anno × Mese × SCOPE (DETAIL, MARKETPLACE_COUNTRY, "
                 "MARKETPLACE_BRAND, COUNTRY_BRAND, GLOBAL_MARKETPLACE, GLOBAL_COUNTRY, GLOBAL_BRAND, "
                 "GLOBAL). Il Fatturato è lo stesso della Dashboard: la somma di ogni SCOPE "
                 "coincide con la riga GLOBAL. Share % = peso sul Fatturato della stessa fetta "
-                "Anno/Mese. Var % YoY = confronto con la stessa fetta dell'anno precedente. "
+                "Periodo/Mese. Var % YoY = confronto con la stessa fetta dell'anno precedente. "
                 f"Sono incluse tutte le {len(nazioni)} nazioni presenti nei dati.")
 
 livello = st.radio(

@@ -89,3 +89,17 @@ MESI_IT = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
            "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
 
 IMAGE_URL_TEMPLATE = "https://repository.falc.biz/fal001{img}-1.jpg"
+
+# =========================================================================================
+# CARICAMENTO CONFIGURAZIONI PERSISTENTI (data/config_aziendale.json + fallback SQLite/Default)
+# =========================================================================================
+try:
+    from core import settings as _settings
+    _active = _settings.load_settings()
+    DEFAULT_IVA = float(_active["iva"]["default"])
+    IVA = dict(_active["iva"]["aliquote"])
+    TASSI_CAMBIO = dict(_active["tassi_cambio"])
+    MESE_INIZIO_ANNO_FISCALE = int(_active["anno_fiscale"]["mese_inizio"])
+except Exception:
+    pass
+

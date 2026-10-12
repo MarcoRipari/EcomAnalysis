@@ -585,10 +585,16 @@ def _shift_year(d: date, n: int) -> date:
         return d.replace(year=d.year + n, day=28)
 
 
-def _anagrafica() -> dict:
-    """L'anagrafica articoli usata dall'app per le descrizioni (se raggiungibile)."""
+def _anagrafica(conn=None) -> dict:
+    """L'anagrafica articoli usata dall'app per le descrizioni (da SQLite)."""
     try:
-        return eceng.load_anagrafica() or {}
+        if conn is not None:
+            return ecd.get_anagrafica_dict(conn) or {}
+        c = ecd.connect(DB_PATH)
+        try:
+            return ecd.get_anagrafica_dict(c) or {}
+        finally:
+            c.close()
     except Exception:
         return {}
 
@@ -596,7 +602,7 @@ def _anagrafica() -> dict:
 def _build_pipe(da: date, a: date, confronto: tuple | None, perimetro: str):
     conn = ecd.connect(DB_PATH)
     try:
-        return ecp.build_pipeline_from_db(conn, (da, a), confronto, perimetro, _anagrafica())
+        return ecp.build_pipeline_from_db(conn, (da, a), confronto, perimetro, _anagrafica(conn))
     finally:
         conn.close()
 

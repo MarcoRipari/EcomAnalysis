@@ -13,7 +13,7 @@ from tests.conftest import carica, riga  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGINE = ["00_Carica_Dati", "11_Log_Riconciliazione", "01_Dashboard", "02_Y2Y_Generale", "03_Articoli_e_Collezioni", "04_Canali_Marketplace",
-          "05_Nazioni", "06_Analisi_Resi", "07_Trova_SKU", "08_Taglie", "10_Export_Dati", "13_Correzioni_DB"]
+          "05_Nazioni", "06_Analisi_Resi", "07_Trova_SKU", "08_Taglie", "10_Export_Dati", "13_Correzioni_DB", "14_Configurazioni", "15_Anagrafica"]
 
 PERIODO_A = (dt.date(2026, 1, 1), dt.date(2026, 3, 31))
 PERIODO_B = (dt.date(2025, 1, 1), dt.date(2025, 3, 31))

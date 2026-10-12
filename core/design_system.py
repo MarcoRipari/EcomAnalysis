@@ -1,46 +1,27 @@
-"""EcomAnalysis Design System — tema enterprise dark/light + componenti UI.
+"""EcomAnalysis Design System — tema enterprise light (bianco/grigio con accento teal) + componenti UI.
 
 Unico punto di verità per l'aspetto dell'app. Ogni pagina Streamlit chiama
 `page_setup()` come PRIMA cosa (sostituisce st.set_page_config + st.title) e
 usa i componenti qui sotto (metric_cards, section, data_table, style_fig).
-
-Token e regole sono documentati nel design system (canvas "EcomAnalysis Design
-System"); i colori sono anche il_contratto per un'eventuale migrazione React.
 """
 from __future__ import annotations
 
 import streamlit as st
 
 # ---------------------------------------------------------------------------
-# Token — palette ufficiale
+# Token — palette ufficiale Light Enterprise (bianco/grigio con accento teal)
 # ---------------------------------------------------------------------------
-DARK = {
-    "bg": "#0B1220",            # fondo app
-    "surface": "#111A2C",       # pannelli / sidebar
-    "card": "#16233A",          # card KPI
-    "card_hover": "#1B2B45",
-    "border": "#22304A",
-    "text": "#E7EEF8",
-    "muted": "#93A1B8",
-    "accent": "#14B8A6",        # teal (più vivido su fondo scuro)
-    "accent_soft": "rgba(20, 184, 166, 0.14)",
-    "positive": "#34D399",
-    "negative": "#F87171",
-    "warning": "#FBBF24",
-    "grid": "rgba(147, 161, 184, 0.15)",
-    "font": "'Inter', 'Segoe UI', system-ui, sans-serif",
-    "mono": "'JetBrains Mono', ui-monospace, monospace",
-}
-
 LIGHT = {
-    "bg": "#F5F7FA",
-    "surface": "#FFFFFF",
-    "card": "#FFFFFF",
-    "card_hover": "#F0FDF9",
-    "border": "#E2E8F0",
-    "text": "#0F1B2D",
-    "muted": "#5B6B82",
+    "bg": "#F1F5F9",            # fondo app (grigio chiaro enterprise / slate-100)
+    "surface": "#FFFFFF",       # pannelli / sidebar / card (bianco puro)
+    "card": "#FFFFFF",          # card KPI
+    "card_hover": "#F0FDF9",    # hover card (tocco leggero teal)
+    "border": "#CBD5E1",        # bordi definiti e visibili (slate-300)
+    "border_subtle": "#E2E8F0", # bordi divisori interni secondari
+    "text": "#0F1B2D",          # testo primario (slate navy scuro ad alto contrasto)
+    "muted": "#5B6B82",         # testo secondario / label / caption
     "accent": "#0D9488",        # teal brand
+    "accent_hover": "#0F766E",  # teal scuro hover
     "accent_soft": "rgba(13, 148, 136, 0.10)",
     "positive": "#059669",
     "negative": "#DC2626",
@@ -50,44 +31,42 @@ LIGHT = {
     "mono": "'JetBrains Mono', ui-monospace, monospace",
 }
 
-# Palette serie (grafici): accent sempre primo, poi neutri/blu coerenti.
-SERIES = ["#14B8A6", "#3B82F6", "#F59E0B", "#8B5CF6", "#64748B", "#EC4899"]
+# Retrocompatibilità se qualche import interno fa riferimento a DARK
+DARK = LIGHT
+
+# Palette serie (grafici): accent teal sempre primo, poi blu/neutri coerenti.
+SERIES = ["#0D9488", "#3B82F6", "#F59E0B", "#8B5CF6", "#64748B", "#EC4899"]
 
 
 def _t() -> dict:
-    return DARK if theme_mode() == "dark" else LIGHT
+    return LIGHT
 
 
 # ---------------------------------------------------------------------------
 # Tema — modalità corrente, persistenza, CSS
 # ---------------------------------------------------------------------------
 def theme_mode() -> str:
-    """'dark' (default) oppure 'light'. Persiste in session_state e query param."""
-    mode = st.session_state.get("ds_theme")
-    if mode not in ("dark", "light"):
-        mode = st.query_params.get("theme", "dark")
-        if mode not in ("dark", "light"):
-            mode = "dark"
-        st.session_state["ds_theme"] = mode
-    return mode
+    """Sempre 'light' (tema unico aziendale)."""
+    st.session_state["ds_theme"] = "light"
+    return "light"
 
 
 def set_theme(mode: str) -> None:
-    mode = "dark" if mode == "dark" else "light"
-    st.session_state["ds_theme"] = mode
-    st.query_params["theme"] = mode
+    """Mantenuta per retrocompatibilità: imposta sempre 'light'."""
+    st.session_state["ds_theme"] = "light"
+    if "theme" in st.query_params:
+        try:
+            del st.query_params["theme"]
+        except Exception:
+            pass
 
 
 def _css() -> str:
-    t = _t()
-    sel = "html[data-theme='light']" if theme_mode() == "light" else "html"
-    # NB: le variabili di Streamlit (--background, --secondary-background-color,
-    # --text-color, …) vengono sovrascritte così che anche dataframe, bottoni e
-    # input cambino aspetto senza reload del tema statico in config.toml.
+    t = LIGHT
     return f"""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
-{sel}, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{
+:root, html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stMainBlockContainer"], .main {{
     --background: {t["bg"]};
     --secondary-background-color: {t["surface"]};
     --background-color: {t["bg"]};
@@ -95,19 +74,92 @@ def _css() -> str:
     --secondary-text-color: {t["muted"]};
     --primary-color: {t["accent"]};
     --font: {t["font"]};
-    background: {t["bg"]};
+    background-color: {t["bg"]};
     color: {t["text"]};
     font-family: {t["font"]};
 }}
 
+/* Assicura che testo e paragrafi siano sempre scuri su chiaro e perfettamente leggibili */
+p, span, label, li, [data-testid="stText"], [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] span {{
+    color: {t["text"]};
+    font-family: {t["font"]};
+}}
+
+h1, h2, h3, h4, h5, h6,
+[data-testid="stHeadingWithActionElements"] h1,
+[data-testid="stHeadingWithActionElements"] h2,
+[data-testid="stHeadingWithActionElements"] h3 {{
+    color: {t["text"]} !important;
+    font-family: {t["font"]};
+}}
+
+/* Link */
+a {{
+    color: {t["accent"]};
+    text-decoration: none;
+}}
+a:hover {{
+    color: {t["accent_hover"]};
+    text-decoration: underline;
+}}
+
+/* Didascalie / testo secondario */
+.stCaption, [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p, [data-testid="stCaptionContainer"] span {{
+    color: {t["muted"]} !important;
+}}
+
+/* Divisori orizzontali */
+hr {{
+    border-color: {t["border"]} !important;
+}}
+
 /* ---------- Sidebar ---------- */
 [data-testid="stSidebar"] {{
-    background: {t["surface"]};
-    border-right: 1px solid {t["border"]};
+    background-color: {t["surface"]} !important;
+    border-right: 1px solid {t["border"]} !important;
 }}
 [data-testid="stSidebar"] * {{ font-family: {t["font"]}; }}
-/* Le icone di Streamlit sono un font a ligature ("keyboard_arrow_down"): se il font di testo le
-   sovrascrive si vede il nome dell'icona al posto del simbolo. */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label {{
+    color: {t["text"]};
+}}
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{
+    font-size: .95rem; font-weight: 700; letter-spacing: .02em; color: {t["text"]} !important;
+}}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {{
+    border-radius: 8px;
+    padding: 6px 10px;
+    transition: background .15s ease, color .15s ease;
+}}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] span,
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] p {{
+    color: {t["text"]} !important;
+    font-size: .88rem;
+    font-weight: 500;
+}}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {{
+    background-color: {t["card_hover"]} !important;
+}}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover span,
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover p {{
+    color: {t["accent"]} !important;
+}}
+[data-testid="stSidebar"] [data-testid="stExpander"] {{
+    background: {t["surface"]} !important;
+    border: 1px solid {t["border"]} !important;
+    border-radius: 8px !important;
+    margin-bottom: 6px;
+    box-shadow: 0 1px 2px rgba(15, 27, 45, 0.03);
+}}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+[data-testid="stSidebar"] [data-testid="stExpander"] summary span {{
+    color: {t["text"]} !important;
+    font-size: .88rem;
+    font-weight: 600;
+}}
+
+/* Icone Streamlit ligature */
 [data-testid="stIconMaterial"], [data-testid="stSidebar"] [data-testid="stIconMaterial"],
 span[class*="material-icons"], span[class*="material-symbols"] {{
     font-family: "Material Symbols Rounded", "Material Symbols Outlined" !important;
@@ -116,27 +168,24 @@ span[class*="material-icons"], span[class*="material-symbols"] {{
     white-space: nowrap !important;
     font-feature-settings: "liga" !important;
 }}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 {{
-    font-size: .95rem; font-weight: 700; letter-spacing: .02em; color: {t["text"]};
-}}
 
 /* ---------- Header pagina ---------- */
 .ds-header {{
     display: flex; align-items: center; gap: 14px;
-    padding: 10px 4px 2px 0; margin-bottom: 4px;
+    padding: 10px 4px 6px 0; margin-bottom: 8px;
     border-bottom: 1px solid {t["border"]};
 }}
 .ds-header .ds-icon {{
     width: 46px; height: 46px; border-radius: 12px; flex: 0 0 auto;
     background: {t["accent_soft"]};
     display: flex; align-items: center; justify-content: center; font-size: 24px;
+    border: 1px solid rgba(13, 148, 136, 0.20);
 }}
 .ds-header h1 {{
     font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em;
     margin: 0; color: {t["text"]}; line-height: 1.2;
 }}
 .ds-header .ds-sub {{ font-size: .85rem; color: {t["muted"]}; margin: 2px 0 0; }}
-.ds-header .ds-toggle {{ margin-left: auto; }}
 
 /* ---------- Sezioni ---------- */
 .ds-section {{ display: flex; align-items: baseline; gap: 10px; margin: 26px 0 4px; }}
@@ -152,90 +201,212 @@ span[class*="material-icons"], span[class*="material-symbols"] {{
 
 /* ---------- Card KPI ---------- */
 .ds-cards {{
-    display: grid; gap: 14px; margin: 10px 0 6px;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    display: grid; gap: 12px; margin: 10px 0 6px;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
 }}
 .ds-card {{
     min-width: 0; overflow: hidden; background: {t["card"]};
     border: 1px solid {t["border"]}; border-radius: 12px;
-    padding: 14px 16px 12px;
-    transition: background .15s ease, border-color .15s ease;
+    padding: 12px 14px 10px;
+    box-shadow: 0 1px 3px rgba(15, 27, 45, 0.07), 0 1px 2px rgba(15, 27, 45, 0.04);
+    transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
 }}
-.ds-card:hover {{ background: {t["card_hover"]}; border-color: {t["accent"]}; }}
+.ds-card:hover {{
+    background: {t["card_hover"]};
+    border-color: {t["accent"]};
+    box-shadow: 0 4px 12px rgba(13, 148, 136, 0.12);
+}}
 .ds-card .ds-label {{
     font-size: .72rem; font-weight: 600; text-transform: uppercase;
     letter-spacing: .06em; color: {t["muted"]}; margin: 0 0 6px;
     line-height: 1.3; min-height: 2.6em;
-    white-space: normal; overflow-wrap: anywhere;
+    white-space: normal; overflow-wrap: break-word;
 }}
 .ds-card .ds-value {{
-    font-size: clamp(1.05rem, 1.25vw + .45rem, 1.45rem); font-weight: 800; color: {t["text"]};
-    font-variant-numeric: tabular-nums; margin: 0; line-height: 1.2;
-    white-space: normal; overflow-wrap: anywhere;
+    font-size: clamp(1.02rem, 1.1vw + .32rem, 1.32rem); font-weight: 800; color: {t["text"]};
+    font-variant-numeric: tabular-nums; margin: 0; line-height: 1.25;
+    white-space: nowrap !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.02em;
 }}
-.ds-card .ds-delta {{ font-size: .8rem; font-weight: 600; margin: 4px 0 0; }}
+.ds-card .ds-delta {{
+    font-size: .8rem; font-weight: 600; margin: 4px 0 0;
+    white-space: nowrap !important;
+}}
 
-/* ---------- Tabelle ---------- */
+/* ---------- Tabelle & Dataframe ---------- */
 [data-testid="stDataFrame"], [data-testid="stTable"] {{
     border: 1px solid {t["border"]} !important;
     border-radius: 12px !important;
     overflow: hidden;
-    background: {t["surface"]};
+    background: {t["surface"]} !important;
+    box-shadow: 0 1px 4px rgba(15, 27, 45, 0.06) !important;
 }}
 [data-testid="stDataFrame"] [class*="header"] {{ text-transform: uppercase; }}
 [data-testid="stTable"] {{ width: 100%; }}
-[data-testid="stTable"] table {{ border-collapse: collapse; }}
+[data-testid="stTable"] table {{ border-collapse: collapse; width: 100%; }}
 [data-testid="stTable"] th {{
     color: {t["muted"]} !important; font-size: .72rem !important;
     text-transform: uppercase; letter-spacing: .05em;
-    border-bottom: 1px solid {t["border"]};
+    border-bottom: 1px solid {t["border"]} !important;
+    background-color: #F8FAFC !important;
+    padding: 10px 14px !important;
 }}
-[data-testid="stTable"] td {{ font-variant-numeric: tabular-nums; }}
+[data-testid="stTable"] td {{
+    font-variant-numeric: tabular-nums;
+    color: {t["text"]} !important;
+    border-bottom: 1px solid {t["border_subtle"]} !important;
+    padding: 10px 14px !important;
+}}
+[data-testid="stTable"] tr:last-child td {{
+    border-bottom: none !important;
+}}
 
 /* ---------- Expander, bottoni, input ---------- */
 [data-testid="stExpander"] {{
-    background: {t["surface"]}; border: 1px solid {t["border"]};
-    border-radius: 12px;
+    background: {t["surface"]} !important;
+    border: 1px solid {t["border"]} !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 3px rgba(15, 27, 45, 0.04) !important;
+}}
+[data-testid="stExpander"] details summary p,
+[data-testid="stExpander"] details summary span {{
+    color: {t["text"]} !important;
+    font-weight: 600;
 }}
 .stButton > button {{
     border-radius: 8px; border: 1px solid {t["border"]};
     background: {t["surface"]}; color: {t["text"]}; font-weight: 600;
+    box-shadow: 0 1px 2px rgba(15, 27, 45, 0.04);
+    transition: all .15s ease;
 }}
-.stButton > button:hover {{ border-color: {t["accent"]}; color: {t["accent"]}; }}
+.stButton > button:hover {{
+    border-color: {t["accent"]}; color: {t["accent"]};
+    background: {t["card_hover"]};
+}}
+.stButton > button[kind="primary"],
+.stButton > button[data-testid="stBaseButton-primary"] {{
+    background: {t["accent"]} !important;
+    border: 1px solid {t["accent"]} !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 1px 3px rgba(13, 148, 136, 0.3) !important;
+}}
+.stButton > button[kind="primary"]:hover,
+.stButton > button[data-testid="stBaseButton-primary"]:hover {{
+    background: {t["accent_hover"]} !important;
+    border-color: {t["accent_hover"]} !important;
+    color: #FFFFFF !important;
+}}
 .stDownloadButton > button {{
     border-radius: 8px; font-weight: 600;
-    background: {t["accent"]}; border: none; color: #FFFFFF;
+    background: {t["accent"]}; border: 1px solid {t["accent"]}; color: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(13, 148, 136, 0.3);
+    transition: background .15s ease;
 }}
-[data-testid="stWidgetLabel"] p {{ color: {t["muted"]}; font-size: .82rem; }}
+.stDownloadButton > button:hover {{
+    background: {t["accent_hover"]}; border-color: {t["accent_hover"]}; color: #FFFFFF;
+}}
+[data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] label, [data-testid="stWidgetLabel"] span {{
+    color: {t["muted"]} !important; font-size: .82rem;
+}}
+input, textarea, select {{
+    color: {t["text"]} !important;
+}}
+/* ---------- Campi input (text_input, number_input, text_area, date_input, selectbox) ---------- */
+[data-testid="stTextInputRootElement"],
+[data-testid="stNumberInputContainer"],
+[data-testid="stTextAreaRootElement"],
+[data-testid="stDateInputField"],
+div[data-baseweb="input"],
+div[data-baseweb="base-input"],
+div[data-baseweb="select"] > div {{
+    border: 1px solid {t["border"]} !important;
+    background-color: {t["surface"]} !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(15, 27, 45, 0.04) !important;
+    transition: border-color .15s ease, box-shadow .15s ease !important;
+}}
 
-/* ---------- Metriche native (pagine non ancora migrate) ---------- */
+[data-testid="stTextInputRootElement"]:hover,
+[data-testid="stNumberInputContainer"]:hover,
+[data-testid="stTextAreaRootElement"]:hover,
+div[data-baseweb="input"]:hover,
+div[data-baseweb="select"] > div:hover {{
+    border-color: {t["muted"]} !important;
+}}
+
+[data-testid="stTextInputRootElement"]:focus-within,
+[data-testid="stNumberInputContainer"]:focus-within,
+[data-testid="stTextAreaRootElement"]:focus-within,
+div[data-baseweb="input"]:focus-within,
+div[data-baseweb="select"] > div:focus-within {{
+    border-color: {t["accent"]} !important;
+    box-shadow: 0 0 0 3px {t["accent_soft"]} !important;
+}}
+
+input::placeholder, textarea::placeholder {{
+    color: #94A3B8 !important;
+}}
+
+/* ---------- Tabs ---------- */
+button[data-baseweb="tab"] p, button[data-baseweb="tab"] div {{
+    color: {t["muted"]};
+    font-weight: 500;
+}}
+button[data-baseweb="tab"][aria-selected="true"] p, button[data-baseweb="tab"][aria-selected="true"] div {{
+    color: {t["accent"]} !important;
+    font-weight: 700;
+}}
+button[data-baseweb="tab"][aria-selected="true"] {{
+    border-bottom-color: {t["accent"]} !important;
+}}
+
+/* ---------- Metriche native ---------- */
 [data-testid="stMetric"] {{
     background: {t["card"]}; border: 1px solid {t["border"]};
     border-radius: 12px; padding: 12px 14px;
+    box-shadow: 0 1px 3px rgba(15, 27, 45, 0.06);
 }}
-[data-testid="stMetricValue"] {{ font-variant-numeric: tabular-nums; }}
+[data-testid="stMetricLabel"] p, [data-testid="stMetricLabel"] span {{
+    color: {t["muted"]} !important;
+}}
+[data-testid="stMetricValue"] {{
+    font-variant-numeric: tabular-nums;
+    color: {t["text"]} !important;
+    white-space: nowrap !important;
+}}
 
 /* ---------- Plotly: card attorno al grafico ---------- */
-/* la card è il grafico stesso (un div markdown aperto/chiuso a parte non avvolgeva nulla) */
 [data-testid="stPlotlyChart"] {{
     background: {t["surface"]}; border: 1px solid {t["border"]};
     border-radius: 12px; padding: 8px 10px 4px; margin: 8px 0 10px; overflow: hidden;
+    box-shadow: 0 1px 4px rgba(15, 27, 45, 0.06);
 }}
 
 /* ---------- Barra periodo (sempre visibile in alto) ---------- */
-/* il contenitore con key è avvolto da uno stLayoutWrapper: è questo a dover restare "appiccicato" */
 [data-testid="stLayoutWrapper"]:has(> .st-key-topbar) {{
-    position: sticky; top: 3.1rem; z-index: 990;
+    position: sticky; top: 4.0rem; z-index: 990;
 }}
 .st-key-topbar {{
     background: {t["surface"]}; border: 1px solid {t["border"]};
     border-radius: 12px; padding: 10px 14px 4px; margin: 0 0 10px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+    box-shadow: 0 2px 8px rgba(15, 27, 45, 0.08);
 }}
 .st-key-topbar [data-testid="stForm"] {{ border: none; padding: 0; }}
 .st-key-topbar button {{ white-space: nowrap; }}
-.st-key-topbar [data-testid="stWidgetLabel"] p {{ font-size: .72rem; text-transform: uppercase;
-    letter-spacing: .05em; }}
+.st-key-topbar [data-testid="stWidgetLabel"] p {{
+    font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .05em; color: {t["muted"]} !important;
+}}
+.st-key-topbar [data-testid="stCaptionContainer"] p,
+.st-key-topbar .stCaption p {{
+    color: {t["muted"]} !important;
+}}
+.st-key-topbar [data-testid="stCaptionContainer"] strong,
+.st-key-topbar .stCaption strong {{
+    color: {t["text"]} !important;
+}}
 
 /* ---------- Pill / badge ---------- */
 .ds-pill {{
@@ -257,15 +428,6 @@ def page_setup(page_title: str, icon: str, subtitle: str | None = None,
                *, layout: str = "wide") -> None:
     st.set_page_config(page_title=page_title, page_icon=icon, layout=layout)
     apply_theme()
-    with st.sidebar:
-        _mode = st.radio("Tema", ["dark", "light"],
-                         index=0 if theme_mode() == "dark" else 1,
-                         label_visibility="collapsed",
-                         format_func=lambda m: "🌙 Dark" if m == "dark" else "☀️ Light",
-                         key="ds_theme_radio")
-        if _mode != st.session_state.get("ds_theme"):
-            set_theme(_mode)
-            st.rerun()
     sub = f'<p class="ds-sub">{subtitle}</p>' if subtitle else ""
     st.markdown(
         f'<div class="ds-header"><div class="ds-icon">{icon}</div>'
@@ -318,11 +480,11 @@ def empty_state(message: str, icon: str = "🗂️") -> None:
 
 
 def style_fig(fig, y_title: str | None = None):
-    """Applica il tema ai grafici Plotly (font, griglia, sfondo trasparente,
+    """Applica il tema enterprise light ai grafici Plotly (font, griglia, sfondo trasparente,
     palette serie coerente). Ritorna il fig per chaining."""
     t = _t()
     fig.update_layout(
-        template="plotly_white" if theme_mode() == "light" else "plotly_dark",
+        template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="Inter, Segoe UI, system-ui, sans-serif",
                   color=t["text"], size=13),
@@ -331,13 +493,27 @@ def style_fig(fig, y_title: str | None = None):
         # legenda in alto, in uno spazio riservato (senza titolo del grafico): in basso finiva
         # sopra il titolo dell'asse X e le etichette ruotate
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0, title_text="",
-                    font=dict(size=12)),
+                    font=dict(color=t["text"], size=12)),
         colorway=SERIES,
     )
-    fig.update_xaxes(gridcolor=t["grid"], zerolinecolor=t["grid"], automargin=True, title_standoff=12)
-    fig.update_yaxes(gridcolor=t["grid"], zerolinecolor=t["grid"], automargin=True, title_standoff=12)
+    fig.update_xaxes(
+        gridcolor=t["grid"],
+        zerolinecolor=t["grid"],
+        tickfont=dict(color=t["text"]),
+        title_font=dict(color=t["text"]),
+        automargin=True,
+        title_standoff=12
+    )
+    fig.update_yaxes(
+        gridcolor=t["grid"],
+        zerolinecolor=t["grid"],
+        tickfont=dict(color=t["text"]),
+        title_font=dict(color=t["text"]),
+        automargin=True,
+        title_standoff=12
+    )
     if y_title:
-        fig.update_yaxes(title_text=y_title)
+        fig.update_yaxes(title_text=y_title, title_font=dict(color=t["text"]))
     return fig
 
 

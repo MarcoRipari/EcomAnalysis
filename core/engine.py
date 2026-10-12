@@ -22,8 +22,10 @@ Differenze rispetto all'originale Apps Script, dovute al cambio di sorgente dati
 
 from __future__ import annotations
 
+import csv
 import io
 import re
+from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
@@ -112,53 +114,224 @@ def _to_bytes(file_or_path) -> bytes:
         return f.read()
 
 
-# Colonne ANAGRAFICA (0-based), come in loadMasterData: sku=0, clz=4, serie=5, cod=6,
-# desc=9, genere=13.
+# Colonne ANAGRAFICA legacy (0-based): sku=0, clz=4, serie=5, cod=6, desc=9, genere=13.
 ANAG_COLS = {"SKU": 0, "CLZ": 4, "SERIE": 5, "COD": 6, "DESC": 9, "GENERE": 13}
 
 
-def load_anagrafica(file_or_path=None) -> dict:
+def deduce_genere(brand: str, linea: str, col6: str = "", cat: str = "", desc: str = "") -> str:
+    """Classifica il genere (macro-categoria) da brand, linea/serie, codice reparto, categoria e descrizione.
+    Ritorna uno dei generi principali ('BAMBINO', 'DONNA', 'UOMO', 'UNISEX', 'ACCESSORI', 'ABBIGLIAMENTO')
+    oppure 'NON CLASSIFICATO'.
     """
-    Ritorna { sku_or_cod: {desc, clz, serie, genere} }. Se `file_or_path` è None,
-    ritorna un dizionario vuoto (i report continuano a funzionare, ma senza descrizioni
-    articolo e senza classificazione per genere: 'NON CLASSIFICATO' ovunque, come faceva
-    l'originale quando la tab ANAGRAFICA era assente/vuota).
-    """
-    if file_or_path is None:
-        return {}
+    b = (brand or "").upper().strip()
+    l = (linea or "").upper().strip()
+    c = (cat or "").upper().strip()
+    d = (desc or "").upper().strip()
 
+    if "ABBIGL" in b or "ABBIGL" in l or "ABBIGL" in d:
+        return "ABBIGLIAMENTO"
+    if "ACCESSORI" in b or "ACCESSORI" in l or "ACCESSORI" in d or c == "PUB" or "MARKETING" in l or "PUBBLICIT" in b or "PUBBLICIT" in l:
+        return "ACCESSORI"
+
+    # Ricerca bambini / kids / newborn
+    if any(k in b or k in l or k in d for k in (
+        "BIMBO", "BIMBA", "CULLA", "FALCOTTO", "NATURINO", "KID", "KIDS",
+        "CHILD", "NEW BORN", "NEONATO", "BABY"
+    )):
+        return "BAMBINO"
+    if l.startswith("F8 "):
+        return "BAMBINO"
+    if b in ("STUART WEITZMAN", "HOSHIKAI", "GUCCI BIMBO", "W6YZ BIMBO", "GOLDEN GOOSE"):
+        return "BAMBINO"
+
+    # Controllo esplicito su descrizione / linea per Donna / Uomo
+    if "DONNA" in l or " D " in l or l.endswith(" D") or l.startswith("DONNA ") or " DONNA" in d or "DONNA " in d or d.endswith(" DONNA"):
+        return "DONNA"
+    if "UOMO" in l or " U " in l or l.endswith(" U") or l.startswith("UOMO ") or " UOMO" in d or "UOMO " in d or d.endswith(" UOMO"):
+        return "UOMO"
+    if "UNISEX" in l or " UNI " in l or "UNISEX" in d:
+        return "UNISEX"
+
+    if "CANDICE COOPER" in b:
+        return "DONNA"
+    if "FLOWER MOUNTAIN" in b:
+        return "UNISEX"
+    if "VOILE BLANCHE" in b:
+        donna_models = ("ALICE", "KARLIE", "LIVYA", "ILDA", "LEDA", "ELLEN", "DOMITILLA", "VISSIA", "HILLY", "FREIA", "CATERINA")
+        if any(m in d for m in donna_models):
+            return "DONNA"
+        if "BULL" in d:
+            return "UOMO"
+        return "DONNA"
+    return "NON CLASSIFICATO"
+
+
+def parse_anagrafica(file_or_path, fonte_file: str = "anagrafica.csv") -> list[dict]:
+    """Effettua il parsing di un file anagrafica (supporta formati TSV \t moderni come anagrafica_261.csv / anagrafica_262.csv
+    con tolleranza alle virgolette non chiuse ed encoding vari, e formati CSV legacy con ';').
+    Ritorna una lista di dizionari pronti per essere inseriti o aggiornati nel DB (db.upsert_anagrafica).
+    """
     raw_bytes = _to_bytes(file_or_path)
-    df = None
+    text = None
     for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
         try:
-            df = pd.read_csv(
-                io.BytesIO(raw_bytes), sep=";", header=None, skiprows=1, dtype=str,
-                quotechar='"', engine="c", encoding=enc, on_bad_lines="skip",
-                keep_default_na=False,
-            )
+            text = raw_bytes.decode(enc)
             break
-        except (UnicodeDecodeError, pd.errors.ParserError):
+        except UnicodeDecodeError:
             continue
-    if df is None or df.empty:
+    if text is None:
+        text = raw_bytes.decode("utf-8", errors="replace")
+
+    lines = text.splitlines()
+    records: list[dict] = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
+
+    first_non_empty = next((line for line in lines if line.strip()), "")
+    sep = "\t" if "\t" in first_non_empty else ";"
+
+    reader = csv.reader(lines, delimiter=sep, quoting=csv.QUOTE_NONE)
+    for row in reader:
+        if not row or all(c.strip() == "" for c in row):
+            continue
+        cleaned = [c.strip().strip("\"") for c in row]
+        if len(cleaned) < 10:
+            continue
+
+        # Salta eventuale riga di intestazione
+        if cleaned[0].lower() in ("anno", "stagione", "sku", "season"):
+            continue
+
+        # Formato standard TSV a 19 colonne (es. anagrafica_261 / 262)
+        if len(cleaned) >= 14 and sep == "\t":
+            def g(idx, default=""):
+                return cleaned[idx] if idx < len(cleaned) else default
+
+            sku7 = g(9)
+            fondo_cod = g(11)
+            colore_cod = g(13)
+            if not sku7:
+                continue
+
+            sku13 = (sku7 + fondo_cod + colore_cod).replace("-", "").strip()
+            brand = g(3)
+            linea = g(5)
+            cat = g(8)
+            col6 = g(6)
+            desc = g(10)
+            genere = deduce_genere(brand, linea, col6, cat, desc)
+
+            records.append({
+                "sku13": sku13,
+                "sku7": sku7,
+                "brand_cod": g(2),
+                "brand": brand,
+                "linea_cod": g(4),
+                "linea": linea,
+                "reparto_cod": col6,
+                "tipo_cod": g(7),
+                "categoria": cat,
+                "descrizione": g(10),
+                "fondo_cod": fondo_cod,
+                "fondo_desc": g(12),
+                "colore_cod": colore_cod,
+                "colore_desc": g(14),
+                "taglia_base": g(15),
+                "valore": g(16),
+                "data_disponibilita": g(17),
+                "flag": g(18),
+                "stagione": g(0),
+                "semestre": g(1),
+                "genere": genere,
+                "fonte_file": fonte_file,
+                "aggiornato_il": now,
+            })
+        elif len(cleaned) >= 14:
+            # Layout legacy con ';' (ANAG_COLS)
+            c = ANAG_COLS
+            n = len(cleaned)
+            sku = cleaned[c["SKU"]] if c["SKU"] < n else ""
+            if not sku:
+                continue
+            sku_clean = sku.replace("-", "").strip()
+            sku7 = sku_clean[:7]
+            sku13 = sku_clean[:13]
+            desc = cleaned[c["DESC"]] if c["DESC"] < n else ""
+            clz = cleaned[c["CLZ"]] if c["CLZ"] < n else ""
+            serie = cleaned[c["SERIE"]] if c["SERIE"] < n else ""
+            genere = cleaned[c["GENERE"]] if c["GENERE"] < n else ""
+            records.append({
+                "sku13": sku13,
+                "sku7": sku7,
+                "brand_cod": "",
+                "brand": clz,
+                "linea_cod": "",
+                "linea": serie,
+                "reparto_cod": "",
+                "tipo_cod": "",
+                "categoria": "",
+                "descrizione": desc,
+                "fondo_cod": "",
+                "fondo_desc": "",
+                "colore_cod": "",
+                "colore_desc": "",
+                "taglia_base": "",
+                "valore": "",
+                "data_disponibilita": "",
+                "flag": "",
+                "stagione": "",
+                "semestre": "",
+                "genere": genere or deduce_genere(clz, serie, "", "", desc),
+                "fonte_file": fonte_file,
+                "aggiornato_il": now,
+            })
+
+    return records
+
+
+def load_anagrafica(file_or_path=None) -> dict:
+    """Ritorna { sku_or_cod: {desc, modello, clz, serie, genere, ...} }.
+    Se `file_or_path` è None, tenta di recuperare l'anagrafica salvata nel DB SQLite.
+    Se il file è fornito, ne esegue il parsing e costruisce la mappa in memoria.
+    """
+    if file_or_path is None:
+        try:
+            from . import db
+            conn = db.connect()
+            d = db.get_anagrafica_dict(conn)
+            if d:
+                return d
+        except Exception:
+            pass
         return {}
 
-    n = df.shape[1]
+    records = parse_anagrafica(file_or_path)
+    if not records:
+        return {}
+
     anag: dict[str, dict] = {}
-    c = ANAG_COLS
-    for row in df.itertuples(index=False, name=None):
-        sku = str(row[c["SKU"]]).strip() if c["SKU"] < n else ""
-        if not sku:
-            continue
+    for r in records:
+        sku13 = r["sku13"]
+        sku7 = r["sku7"]
+        desc_val = r["descrizione"] or "-"
+        stag_val = f"{r['stagione']}/{r['semestre']}" if r.get("semestre") else (r.get("stagione") or "")
         entry = {
-            "desc": str(row[c["DESC"]]).strip() if c["DESC"] < n else "",
-            "clz": str(row[c["CLZ"]]).strip() if c["CLZ"] < n else "",
-            "serie": str(row[c["SERIE"]]).strip() if c["SERIE"] < n else "",
-            "genere": str(row[c["GENERE"]]).strip() if c["GENERE"] < n else "",
+            "desc": desc_val,
+            "modello": desc_val,
+            "clz": r["brand"] or "-",
+            "serie": r["linea"] or "-",
+            "genere": r["genere"] or "NON CLASSIFICATO",
+            "materiale": r["fondo_desc"] or "",
+            "colore": r["colore_desc"] or "",
+            "taglia_base": r["taglia_base"] or "",
+            "stagione": stag_val,
+            "cod": sku7 or "",
+            "sku": sku13 or "",
         }
-        anag[sku] = entry
-        cod = str(row[c["COD"]]).strip() if c["COD"] < n else ""
-        if cod and cod not in anag:
-            anag[cod] = entry
+        if sku13:
+            anag[sku13] = entry
+        if sku7 and (sku7 not in anag or (anag[sku7].get("genere") == "NON CLASSIFICATO" and entry["genere"] != "NON CLASSIFICATO")):
+            anag[sku7] = entry
+
     return anag
 
 
@@ -172,12 +345,15 @@ _TAGLIA_LETTER_RE = re.compile(r"^(XXS|XS|S|M|L|XL|XXL|XXXL)$", re.IGNORECASE)
 _GENERI_PRINCIPALI = {"BAMBINO", "BAMBINA", "UOMO", "DONNA", "UNISEX", "ACCESSORI", "ABBIGLIAMENTO"}
 
 
-def process_dataset(df_raw: pd.DataFrame, anagrafica: dict) -> pd.DataFrame:
+def process_dataset(df_raw: pd.DataFrame, anagrafica: dict | None = None) -> pd.DataFrame:
     """
     Ritorna un DataFrame "processedRows" equivalente a quello prodotto da processDataset()
     in backend.gs, con le stesse colonne calcolate (nomi in italiano/camelCase originali,
     tradotti in snake_case Python).
+    Se anagrafica non è fornita (None), tenta di recuperarla dal DB SQLite.
     """
+    if anagrafica is None:
+        anagrafica = load_anagrafica(None)
     c = CFG.COLS_DATASET
     n = df_raw.shape[1]
     if n < CFG.N_COLS:

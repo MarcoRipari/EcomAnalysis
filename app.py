@@ -18,15 +18,19 @@ Come aggiungere una voce futura:
 Nessuna logica di business qui: le pagine leggono la pipeline da
 st.session_state["pipeline"], generata nella pagina ⬆️ Carica Dati.
 """
+import importlib
 import streamlit as st
 
-from core import auth, topbar
+from core import auth, topbar, db, engine
+importlib.reload(db)
+importlib.reload(engine)
 from core.design_system import apply_theme
 
 # ---------------------------------------------------------------------------------------
 # Definizione delle pagine (l'ordine nel menu è dato da GRUPPI_MENU)
 # ---------------------------------------------------------------------------------------
 page_carica = st.Page("pages/00_Carica_Dati.py", title="Carica Dati", icon="⬆️")
+page_anagrafica = st.Page("pages/15_Anagrafica.py", title="Anagrafica Articoli", icon="📋")
 page_dashboard = st.Page("pages/01_Dashboard.py", title="Dashboard", icon="📊", default=True)
 page_y2y_generale = st.Page("pages/02_Y2Y_Generale.py", title="Y2Y Generale", icon="📈")
 page_articoli_collezioni = st.Page("pages/03_Articoli_e_Collezioni.py", title="Articoli & Collezioni", icon="🌳")
@@ -37,6 +41,7 @@ page_trova_sku = st.Page("pages/07_Trova_SKU.py", title="Trova SKU", icon="🔎"
 page_taglie = st.Page("pages/08_Taglie.py", title="Taglie per Brand", icon="👟")
 page_sell_through = st.Page("pages/09_Sell_Through.py", title="Sell-Through", icon="📦")
 page_export = st.Page("pages/10_Export_Dati.py", title="Export Dati", icon="📤")
+page_configurazioni = st.Page("pages/14_Configurazioni.py", title="Configurazioni", icon="⚙️")
 page_correzioni = st.Page("pages/13_Correzioni_DB.py", title="Correzioni DB", icon="🛠️")
 page_log_riconciliazione = st.Page("pages/11_Log_Riconciliazione.py", title="Log Riconciliazione", icon="🔍")
 page_account = st.Page("pages/12_Account.py", title="Account e 2FA", icon="🔐")
@@ -82,7 +87,9 @@ GRUPPI_MENU = [
         "espanso": False,
         "voci": [
             page_carica,
+            page_anagrafica,
             page_export,
+            page_configurazioni,
             page_correzioni,
             page_log_riconciliazione,
             page_account,

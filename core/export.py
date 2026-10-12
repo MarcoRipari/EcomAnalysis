@@ -11,6 +11,7 @@ sulla stessa riga); i resi fuori periodo vanno al mese della Data Reso.
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from . import config as CFG
@@ -31,7 +32,7 @@ _SCOPE_KEYS = {
 }
 _MISURE = ["nettoNetto", "nettoSpedito", "nettoReso", "paiaSpedite", "paiaRese", "paiaNette"]
 
-COLONNE = ["Anno", "Mese", "Scope", "Marketplace", "Nazione", "Brand", "Fatturato", "Share %",
+COLONNE = ["Periodo", "Anno", "Mese", "Scope", "Marketplace", "Nazione", "Brand", "Fatturato", "Share %",
            "Valore Medio Paio", "Paia spedite", "Paia rese", "Paia nette", "Reso %",
            "Reso % (valore)", "Var % Fatturato YoY"]
 
@@ -39,26 +40,79 @@ MESE_TOTALE = "Tutto il periodo"
 
 
 def _prepara(venduto: pd.DataFrame | None, resi_fp: pd.DataFrame | None) -> pd.DataFrame:
-    """Unisce venduto e resi fuori periodo in un solo frame con le dimensioni e il mese."""
+    """Unisce venduto e resi in un solo frame.
+    Le vendite vanno alla data di vendita; i resi (sia del venduto con dataReso nel periodo,
+    sia fuori periodo) vanno alla data di reso.
+    Ogni riga conserva sia 'anno' (anno solare effettivo: 2024, 2025, 2026) sia 'mese' (1..12)."""
     pezzi = []
-    for df, col_data in ((venduto, "dataVendita"), (resi_fp, "dataReso")):
-        if df is None or df.empty:
-            continue
-        w = pd.DataFrame({
-            "mkp": df["mkp"].astype(str).to_numpy(),
-            "nazione": df["nazione"].astype(str).to_numpy(),
-            "brand": df["clzMappata"].astype(str).replace("", "ALTRO").to_numpy(),
-            "mese": pd.to_datetime(df[col_data], errors="coerce").dt.month.fillna(0).astype(int).to_numpy(),
+    if venduto is not None and not venduto.empty:
+        # 1. Vendite
+        v_sales = venduto.copy()
+        dt_v = pd.to_datetime(v_sales["dataVendita"], errors="coerce")
+        anno_v = dt_v.dt.year.fillna(0).astype(int).to_numpy()
+        mese_v = dt_v.dt.month.fillna(0).astype(int).to_numpy()
+        w_sales = pd.DataFrame({
+            "mkp": v_sales["mkp"].astype(str).to_numpy(),
+            "nazione": v_sales["nazione"].astype(str).to_numpy(),
+            "brand": v_sales["clzMappata"].astype(str).replace("", "ALTRO").to_numpy(),
+            "anno": anno_v,
+            "mese": mese_v,
+            "nettoNetto": v_sales["nettoSpedito"].astype(float).to_numpy(),
+            "nettoSpedito": v_sales["nettoSpedito"].astype(float).to_numpy(),
+            "nettoReso": np.zeros(len(v_sales), dtype=float),
+            "paiaSpedite": v_sales["paiaSpedite"].astype(float).to_numpy(),
+            "paiaRese": np.zeros(len(v_sales), dtype=float),
+            "paiaNette": v_sales["paiaSpedite"].astype(float).to_numpy(),
+        })
+        pezzi.append(w_sales)
+
+        # 2. Resi del venduto (solo se effettivamente resi nel periodo)
+        v_resi = venduto[venduto["isReso"] & venduto["dataReso"].notna()].copy()
+        if not v_resi.empty:
+            dt_r = pd.to_datetime(v_resi["dataReso"], errors="coerce")
+            anno_r = dt_r.dt.year.fillna(0).astype(int).to_numpy()
+            mese_r = dt_r.dt.month.fillna(0).astype(int).to_numpy()
+            n_r = v_resi["nettoReso"].astype(float).to_numpy()
+            p_r = v_resi["paiaRese"].astype(float).to_numpy()
+            w_resi = pd.DataFrame({
+                "mkp": v_resi["mkp"].astype(str).to_numpy(),
+                "nazione": v_resi["nazione"].astype(str).to_numpy(),
+                "brand": v_resi["clzMappata"].astype(str).replace("", "ALTRO").to_numpy(),
+                "anno": anno_r,
+                "mese": mese_r,
+                "nettoNetto": -n_r,
+                "nettoSpedito": np.zeros(len(v_resi), dtype=float),
+                "nettoReso": n_r,
+                "paiaSpedite": np.zeros(len(v_resi), dtype=float),
+                "paiaRese": p_r,
+                "paiaNette": -p_r,
+            })
+            pezzi.append(w_resi)
+
+    # 3. Resi fuori periodo
+    if resi_fp is not None and not resi_fp.empty:
+        col_d = "dataReso" if "dataReso" in resi_fp.columns else "dataVendita"
+        dt_fp = pd.to_datetime(resi_fp[col_d], errors="coerce")
+        anno_fp = dt_fp.dt.year.fillna(0).astype(int).to_numpy()
+        mese_fp = dt_fp.dt.month.fillna(0).astype(int).to_numpy()
+        w_fp = pd.DataFrame({
+            "mkp": resi_fp["mkp"].astype(str).to_numpy(),
+            "nazione": resi_fp["nazione"].astype(str).to_numpy(),
+            "brand": resi_fp["clzMappata"].astype(str).replace("", "ALTRO").to_numpy(),
+            "anno": anno_fp,
+            "mese": mese_fp,
         })
         for m in _MISURE:
-            w[m] = df[m].astype(float).to_numpy()
-        pezzi.append(w)
+            w_fp[m] = resi_fp[m].astype(float).to_numpy()
+        pezzi.append(w_fp)
+
     if not pezzi:
-        return pd.DataFrame(columns=["mkp", "nazione", "brand", "mese"] + _MISURE)
+        return pd.DataFrame(columns=["mkp", "nazione", "brand", "anno", "mese"] + _MISURE)
     return pd.concat(pezzi, ignore_index=True)
 
 
-def _righe_fetta(w: pd.DataFrame, anno: str, mese: str, nazioni: set[str]) -> list[dict]:
+def _righe_fetta(w: pd.DataFrame, periodo: str, anno: str, mese: str, nazioni: set[str],
+                 seq: int = 0) -> list[dict]:
     tot = float(w["nettoNetto"].sum())
     out = []
     for scope in SCOPES:
@@ -76,7 +130,7 @@ def _righe_fetta(w: pd.DataFrame, anno: str, mese: str, nazioni: set[str]) -> li
             fatt, sped, rese = float(k["nettoNetto"]), float(k["paiaSpedite"]), float(k["paiaRese"])
             nette, f_sped = max(0.0, float(k["paiaNette"])), float(k["nettoSpedito"])
             out.append({
-                "Anno": anno, "Mese": mese, "Scope": scope,
+                "Periodo": periodo, "Anno": str(anno), "Mese": mese, "Scope": scope,
                 "Marketplace": dim.get("mkp", "GLOBAL"), "Nazione": naz,
                 "Brand": dim.get("brand", "GLOBAL"),
                 "Fatturato": fatt,
@@ -85,6 +139,7 @@ def _righe_fetta(w: pd.DataFrame, anno: str, mese: str, nazioni: set[str]) -> li
                 "Paia spedite": sped, "Paia rese": rese, "Paia nette": nette,
                 "Reso %": rese / sped if sped > 0 else 0.0,
                 "Reso % (valore)": float(k["nettoReso"]) / f_sped if f_sped > 0 else 0.0,
+                "_seq": seq,
             })
     return out
 
@@ -100,8 +155,9 @@ def nazioni_disponibili(periodi: list[tuple]) -> list[str]:
 
 
 def build_export(periodi: list[tuple], nazioni_scelte: list[str], mensile: bool = False) -> pd.DataFrame:
-    """`periodi` = [(etichetta anno, venduto, resi_fuori_periodo), …] dal più recente al più vecchio.
-    Con `mensile` una riga per ogni mese del periodo, altrimenti Mese = "Tutto il periodo"."""
+    """`periodi` = [(etichetta periodo, venduto, resi_fuori_periodo), …] dal più recente al più vecchio.
+    Con `mensile` una riga per ogni mese del periodo in ordine cronologico,
+    altrimenti Mese = "Tutto il periodo"."""
     nazioni = set(nazioni_scelte or [])
     rows: list[dict] = []
     for label, venduto, resi_fp in periodi:
@@ -109,11 +165,19 @@ def build_export(periodi: list[tuple], nazioni_scelte: list[str], mensile: bool 
         if w.empty:
             continue
         if mensile:
-            for m in sorted(w["mese"].unique()):
-                if m >= 1:
-                    rows += _righe_fetta(w[w["mese"] == m], label, CFG.MESI_IT[m - 1], nazioni)
+            ym_validi = sorted({(int(y), int(m)) for y, m in zip(w["anno"], w["mese"]) if y > 0 and 1 <= m <= 12})
+            for seq_idx, (y, m) in enumerate(ym_validi):
+                w_sub = w[(w["anno"] == y) & (w["mese"] == m)]
+                rows += _righe_fetta(w_sub, label, str(y), CFG.MESI_IT[m - 1], nazioni, seq=seq_idx)
         else:
-            rows += _righe_fetta(w, label, MESE_TOTALE, nazioni)
+            anni = sorted({int(y) for y in w["anno"] if y > 0})
+            if len(anni) > 1:
+                anno_str = f"{anni[0]}-{anni[-1]}"
+            elif len(anni) == 1:
+                anno_str = str(anni[0])
+            else:
+                anno_str = str(label)
+            rows += _righe_fetta(w, label, anno_str, MESE_TOTALE, nazioni, seq=0)
     if not rows:
         return pd.DataFrame(columns=COLONNE)
 
@@ -123,10 +187,10 @@ def build_export(periodi: list[tuple], nazioni_scelte: list[str], mensile: bool 
     etichette = [p[0] for p in periodi]
     chiave = ["Mese", "Scope", "Marketplace", "Nazione", "Brand"]
     chiavi = list(out[chiave].itertuples(index=False, name=None))
-    lookup = {(a, *k): f for a, k, f in zip(out["Anno"], chiavi, out["Fatturato"])}
+    lookup = {(p, *k): f for p, k, f in zip(out["Periodo"], chiavi, out["Fatturato"])}
     var = []
-    for a, k, f in zip(out["Anno"], chiavi, out["Fatturato"]):
-        i = etichette.index(a)
+    for p, k, f in zip(out["Periodo"], chiavi, out["Fatturato"]):
+        i = etichette.index(p)
         prev = lookup.get((etichette[i + 1], *k)) if i + 1 < len(etichette) else None
         if prev is None:
             var.append(None)
@@ -134,15 +198,13 @@ def build_export(periodi: list[tuple], nazioni_scelte: list[str], mensile: bool 
             var.append((f / prev - 1) if prev != 0 else (1.0 if f > 0 else 0.0))
     out["Var % Fatturato YoY"] = var
 
-    ordine_anno = {a: i for i, a in enumerate(etichette)}
+    ordine_periodo = {p: i for i, p in enumerate(etichette)}
     ordine_scope = {s: i for i, s in enumerate(SCOPES)}
-    ordine_mese = {m: i for i, m in enumerate([MESE_TOTALE] + CFG.MESI_IT)}
-    out["_a"] = out["Anno"].map(ordine_anno)
-    out["_m"] = out["Mese"].map(ordine_mese)
+    out["_p"] = out["Periodo"].map(ordine_periodo)
     out["_s"] = out["Scope"].map(ordine_scope)
-    out = out.sort_values(["_a", "_m", "_s", "Fatturato"], ascending=[True, True, True, False],
+    out = out.sort_values(["_p", "_seq", "_s", "Fatturato"], ascending=[True, True, True, False],
                           kind="mergesort")
-    return out.drop(columns=["_a", "_m", "_s"])[COLONNE].reset_index(drop=True)
+    return out.drop(columns=["_p", "_seq", "_s"])[COLONNE].reset_index(drop=True)
 
 
 PERCENTUALI = {"Share %", "Reso %", "Reso % (valore)", "Var % Fatturato YoY"}

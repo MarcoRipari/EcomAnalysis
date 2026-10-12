@@ -57,14 +57,26 @@ def fmt_pp(x, decimals: int = 1) -> str:
     return f"{'-' if x < 0 else '+'}{s} pp"
 
 
-def etichetta_periodo(start, end, indietro: int = 0, lunga: bool = False) -> str:
+def fmt_int(x) -> str:
+    """Intero formattato con punto separatore delle migliaia (es. 12.345)."""
+    if _is_nan(x):
+        return "—"
+    return f"{int(x):,}".replace(",", ".")
+
+
+def etichetta_periodo(start, end, indietro: int = 0, lunga: bool = False, fiscale: bool = False) -> str:
     """Etichetta di un periodo spostato di `indietro` anni.
 
     Breve (tabelle, nomi di colonna): l'anno dell'ultima data del periodo, es. "2026" per 01/11/2025 →
     31/10/2026 e "2025" per il precedente.
     Lunga (grafici): "2025/26" se il periodo è a cavallo d'anno, così novembre 2025 non sembra 2026;
-    uguale alla breve se il periodo sta in un solo anno solare."""
+    uguale alla breve se il periodo sta in un solo anno solare.
+    Fiscale (export): "25/26" se il periodo è a cavallo d'anno (es. 25/26, 24/25), altrimenti anno singolo."""
     y0, y1 = start.year - indietro, end.year - indietro
+    if fiscale:
+        if y0 != y1:
+            return f"{str(y0)[-2:]}/{str(y1)[-2:]}"
+        return str(y1)
     if not lunga or y0 == y1:
         return str(y1)
     return f"{y0}/{str(y1)[-2:]}"

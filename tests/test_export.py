@@ -48,6 +48,32 @@ def test_il_reso_fuori_periodo_di_una_nazione_nuova_compare_nel_dettaglio(period
 
 def test_formati_csv_e_markdown(periodi):
     df = export.build_export(periodi, export.nazioni_disponibili(periodi))
-    assert export.to_csv(df).startswith(b"\xef\xbb\xbfAnno;Mese;Scope")
+    assert export.to_csv(df).startswith(b"\xef\xbb\xbfPeriodo;Anno;Mese;Scope")
     md = export.to_markdown(df)
-    assert md.splitlines()[0].startswith("| Anno | Mese | Scope")
+    assert md.splitlines()[0].startswith("| Periodo | Anno | Mese | Scope")
+
+
+def test_export_periodo_fiscale(conn):
+    """Verifica che un periodo a cavallo d'anno riporti il Periodo corretto (es. 25/26 e 24/25),
+    l'Anno solare effettivo di competenza, e l'ordine cronologico (novembre prima di gennaio)."""
+    carica(conn,
+           dataset=[riga("N1", "15/11/2025"), riga("G1", "10/01/2026"),
+                    riga("N0", "15/11/2024"), riga("G0", "10/01/2025")])
+    v_curr, s_curr = db.query_period(conn, dt.date(2025, 11, 1), dt.date(2026, 9, 30))
+    v_old, s_old = db.query_period(conn, dt.date(2024, 11, 1), dt.date(2025, 9, 30))
+    periodi = [("25/26", v_curr, s_curr), ("24/25", v_old, s_old)]
+    nazioni = export.nazioni_disponibili(periodi)
+
+    df = export.build_export(periodi, nazioni, mensile=True)
+    g_curr = df[(df["Periodo"] == "25/26") & (df["Scope"] == "GLOBAL")]
+    # Ordine cronologico: Novembre 2025 prima di Gennaio 2026
+    assert list(g_curr["Mese"]) == ["Novembre", "Gennaio"]
+    assert list(g_curr["Anno"]) == ["2025", "2026"]
+
+    g_old = df[(df["Periodo"] == "24/25") & (df["Scope"] == "GLOBAL")]
+    assert list(g_old["Mese"]) == ["Novembre", "Gennaio"]
+    assert list(g_old["Anno"]) == ["2024", "2025"]
+
+    # Var % YoY confronta Novembre 25/26 vs Novembre 24/25
+    r_nov = g_curr[g_curr["Mese"] == "Novembre"].iloc[0]
+    assert r_nov["Var % Fatturato YoY"] == pytest.approx(0.0)  # 100 vs 100 -> var 0%
