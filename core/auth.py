@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
+import urllib.parse
 from datetime import datetime, timezone
 
 import requests
@@ -130,6 +132,10 @@ def _traduci(msg: str) -> str:
     m = msg.lower()
     if "invalid login credentials" in m:
         return "Email o password non validi."
+    if "user already registered" in m or "already registered" in m:
+        return "Un utente con questo indirizzo email è già registrato su Supabase."
+    if "password should be at least" in m or "weak_password" in m:
+        return "La password deve contenere almeno 6 caratteri."
     if "email not confirmed" in m:
         return ("Email non ancora confermata: controlla la posta (o conferma l'utente "
                 "dalla dashboard Supabase).")
@@ -230,6 +236,15 @@ def sign_in_with_password(email: str, password: str) -> dict:
     data = _call("POST", "token", params={"grant_type": "password"},
                  json_body={"email": email, "password": password})
     return _completa_sessione(_session_from(data))
+
+
+def sign_up_user(email: str, password: str, metadata: dict | None = None) -> dict:
+    """Registra un nuovo utente su Supabase Auth (POST /auth/v1/signup).
+    Ritorna la risposta di Supabase con i dati dell'account creato."""
+    payload: dict = {"email": email, "password": password}
+    if metadata:
+        payload["data"] = metadata
+    return _call("POST", "signup", json_body=payload)
 
 
 def challenge_factor(access_token: str, factor_id: str) -> str:
@@ -395,20 +410,33 @@ def logout(session: dict) -> None:
 
 # ------------------------------------------------------------------ UI
 def qr_component(qr_code: str) -> None:
-    """Disegna il QR dell'enroll TOTP. Attenzione: GoTrue NON restituisce un
-    data-URI ma SVG puro ('<svg ...>...</svg>') — messo dentro <img src="...">
-    l'HTML si vedrebbe come testo. Iniettato come markup inline invece si
-    disegna perfettamente. (Usato dal cancello e dalla pagina Account.)"""
-    qr = (qr_code or "").strip()
-    if not qr:
+    """Disegna il QR dell'enroll TOTP in modo pulito e responsive.
+    Gestisce:
+    - SVG puro o in data-URI (anche con dichiarazioni XML o codifica URL):
+      estratto, assicurato il namespace xmlns e convertito in data-URI base64
+      per visualizzazione tramite st.image (evita stripping di DOMPurify e conflitti apici).
+    - Data URI base64 già pronti (PNG o SVG) o URL esterni: passati direttamente a st.image.
+    """
+    raw = (qr_code or "").strip()
+    if not raw:
         return
-    if qr.startswith("<svg"):
-        _iframe_html(
-            qr.replace("<svg ", '<svg style="width:100%;height:auto;" ', 1),
-            height=240,
-        )
-    else:   # fallback: data-URI o URL di un'immagine
-        _iframe_html(f'<img src="{qr}" width="220" alt="QR TOTP"/>', height=240)
+
+    if raw.startswith("data:image/svg+xml;base64,") or raw.startswith("data:image/png;base64,"):
+        st.image(raw, width=220)
+        return
+
+    unquoted = urllib.parse.unquote(raw)
+    m = re.search(r"<svg[\s\S]*?</svg>", unquoted, re.IGNORECASE)
+    if m:
+        svg = m.group(0)
+        # Assicura il namespace xmlns richiesto dai browser per file SVG renderizzati in <img>
+        if "xmlns=" not in svg:
+            svg = re.sub(r"<svg\b", '<svg xmlns="http://www.w3.org/2000/svg"', svg, count=1, flags=re.IGNORECASE)
+        b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        data_uri = f"data:image/svg+xml;base64,{b64}"
+        st.image(data_uri, width=220)
+    else:
+        st.image(raw, width=220)
 
 
 def _login_flow() -> None:

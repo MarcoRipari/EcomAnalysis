@@ -7,8 +7,7 @@ from core import aggregations as agg
 from core.design_system import page_setup, section, data_table, metric_cards, empty_state, it_num
 from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col, image_col, period_labels
 
-page_setup("Analisi Resi", "🔄",
-           "Monitoraggio analitico dei resi: tassi di reso per brand, marketplace, nazione e articoli critici")
+page_setup("Analisi Resi", None)
 
 pipe = guard_pipeline()
 current_data = pipe.current_data
@@ -20,24 +19,23 @@ fatt_reso_tot = (current_data["nettoReso"].sum() if not current_data.empty else 
 
 metric_cards([
     {"label": "Paia Rese Totali", "value": it_num(kpi_tot["paiaRes"])},
-    {"label": "% Reso (su Paia Spedite)", "value": f"{it_num(kpi_tot['percReso'] * 100, 1)}%"},
-    {"label": "Fatturato Rimborsato Totale", "value": f"{it_num(fatt_reso_tot, 2)} €"},
-    {"label": "% Reso (su Valore Spedito)", "value": f"{it_num(kpi_tot['percResoValore'] * 100, 1)}%"},
-    {"label": "Paia rese di vendite del periodo", "value": it_num(kpi_tot["paiaResePeriodo"])},
-    {"label": "Paia rese di vendite fuori periodo", "value": it_num(kpi_tot["paiaReseFuoriPeriodo"])},
+    {"label": "% Reso (su Paia)", "value": f"{it_num(kpi_tot['percReso'] * 100, 1)}%"},
+    {"label": "Valore Reso Totale", "value": f"{it_num(fatt_reso_tot, 2)} €"},
+    {"label": "% Reso (su Valore)", "value": f"{it_num(kpi_tot['percResoValore'] * 100, 1)}%"},
+    {"label": "Paia Rese (Periodo)", "value": it_num(kpi_tot["paiaResePeriodo"])},
+    {"label": "Paia Rese (Fuori Periodo)", "value": it_num(kpi_tot["paiaReseFuoriPeriodo"])},
 ])
 
 st.divider()
 
 tab_collezioni, tab_canali, tab_articoli = st.tabs([
-    "🏷️ Resi per Brand e Collezione",
-    "🌐 Resi per Marketplace e Nazione",
-    "⚠️ Top Articoli Critici per Reso",
+    "Brand & Collezione",
+    "Marketplace & Nazione",
+    "Articoli Critici",
 ])
 
 with tab_collezioni:
-    section("Stato dei Resi per Brand / Collezione",
-            caption="Soglia benchmark: 30% · 🟢 <20% Ottimo · 🔵 20-30% Stabile · 🟡 30-40% Monitorare · 🟠 40-50% Elevato · 🔴 >50% Critico")
+    section("Stato dei Resi per Brand / Collezione")
     df_status = rb.resi_status(current_data, st_curr)
     if not df_status.empty:
         data_table(df_status, {
@@ -100,8 +98,7 @@ with tab_canali:
             })
 
 with tab_articoli:
-    section("Top 20 Articoli con Maggior Fatturato Perso in Resi",
-            caption="Articoli ordinati per totale valore rimborsato (€) decrescente")
+    section("Top 20 Articoli Critici per Reso")
     y_curr, _ = period_labels(1)[0], None
     top_art = rb.top_articoli_dashboard(current_data, pipe.anagrafica, top_n=5000, resi_fp_data=st_curr)
     if not top_art.empty:

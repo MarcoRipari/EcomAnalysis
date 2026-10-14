@@ -6,18 +6,13 @@ from core import report_builders as rb
 from core.design_system import page_setup, section, data_table, empty_state, metric_cards, it_num
 from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col, image_col, period_labels
 
-page_setup("Articoli & Collezioni", "🌳",
-           "Analisi approfondita per Collezione, Codice Articolo (SKU7) e Carryover — Confronto Y2Y")
+page_setup("Articoli & Collezioni", None)
 
 pipe = guard_pipeline()
 y_curr, y_old = period_labels(2)
 
 if pipe.old_data.empty:
-    empty_state(
-        "L'anno−1 non è coperto dal DB: non ci sono dati storici da confrontare. "
-        "Scegli un periodo il cui anno precedente sia presente nel DB in Carica Dati.",
-        "⚠️"
-    )
+    empty_state("Dati del periodo di confronto non disponibili.")
     st.stop()
 
 st.markdown(
@@ -49,7 +44,7 @@ if is_carryover:
     st_old_view = co_dict["resi_fp_old"]
     num_skus = curr_view["sku13"].nunique() if not curr_view.empty else 0
     with col_ctrl2:
-        st.info(f"♻️ Modalità Carryover attiva: **{num_skus:,}** SKU13 venduti in entrambe le stagioni.".replace(",", "."))
+        st.caption(f"{num_skus:,} SKU13 in perimetro Carryover".replace(",", "."))
 else:
     curr_view = current_data
     old_view = old_data
@@ -57,12 +52,12 @@ else:
     st_old_view = st_old
     num_skus = curr_view["sku13"].nunique() if not curr_view.empty else 0
     with col_ctrl2:
-        st.caption(f"Visualizzazione completa: **{num_skus:,}** SKU13 totali nel periodo corrente.".replace(",", "."))
+        st.caption(f"{num_skus:,} SKU13 a catalogo".replace(",", "."))
 
 tab_albero, tab_codici, tab_top_flop = st.tabs([
-    "🔎 Esplora per Marketplace · Nazione · Brand · Collezione",
-    "🔢 Performance Codici SKU7",
-    "🏆 Top & Flop (Best Seller & Resi Critici)",
+    "Dimensioni",
+    "Codici SKU7",
+    "Top & Flop",
 ])
 
 CONF_ESPLORA = {
@@ -74,21 +69,16 @@ CONF_ESPLORA = {
 }
 
 with tab_albero:
-    st.caption("Scegli i filtri (ognuno mostra solo i valori compatibili con le scelte precedenti; "
-               "vuoto = tutti) e le dimensioni per cui raggruppare le righe.")
     frames = [curr_view, st_curr_view, old_view, st_old_view]
     filtri: dict[str, list[str]] = {}
     colonne_filtri = st.columns(len(esplora.DIMENSIONI))
     for (etichetta, colonna), box in zip(esplora.DIMENSIONI.items(), colonne_filtri):
         chiave = f"esp_{colonna}"
-        disponibili = esplora.opzioni(frames, colonna, filtri)        # compatibili con i filtri a sinistra
-        # un valore scelto prima e non più compatibile con i filtri precedenti viene scartato
+        disponibili = esplora.opzioni(frames, colonna, filtri)
         st.session_state[chiave] = [v for v in st.session_state.get(chiave, []) if v in disponibili]
         filtri[colonna] = box.multiselect(etichetta, disponibili, key=chiave, placeholder="Tutti")
     raggruppa = st.multiselect("Raggruppa per", list(esplora.DIMENSIONI), default=["Brand", "Collezione"],
-                               key="esp_raggruppa",
-                               help="Le righe della tabella sono le combinazioni delle dimensioni scelte. "
-                                    "Senza dimensioni vedi un solo totale per i filtri selezionati.")
+                               key="esp_raggruppa")
 
     tab = esplora.tabella((curr_view, st_curr_view), (old_view, st_old_view), filtri, raggruppa, y_curr, y_old)
     kc = met.kpi_reali(esplora.filtra(curr_view, filtri), esplora.filtra(st_curr_view, filtri))
@@ -96,9 +86,9 @@ with tab_albero:
     metric_cards([
         {"label": f"Fatturato {y_curr}", "value": f"{it_num(kc['fattReale'], 2)} €"},
         {"label": f"Fatturato {y_old}", "value": f"{it_num(ko['fattReale'], 2)} €"},
-        {"label": f"Paia nette {y_curr}", "value": it_num(kc["paiaNette"])},
+        {"label": f"Paia Nette {y_curr}", "value": it_num(kc["paiaNette"])},
         {"label": f"% Reso {y_curr}", "value": f"{it_num(kc['percReso'] * 100, 1)}%"},
-        {"label": f"Scontrino medio {y_curr}", "value": f"{it_num(kc['scontrinoMedio'], 2)} €"},
+        {"label": f"Scontrino Medio {y_curr}", "value": f"{it_num(kc['scontrinoMedio'], 2)} €"},
     ])
     if tab.empty:
         empty_state("Nessun dato per questa combinazione di filtri.")
@@ -116,7 +106,7 @@ with tab_codici:
 
     col_search, col_sort = st.columns([2, 1])
     with col_search:
-        filtro_txt = st.text_input("🔎 Cerca per codice, collezione o descrizione", key="filtro_sku7")
+        filtro_txt = st.text_input("Cerca per codice, collezione o descrizione", key="filtro_sku7")
     with col_sort:
         ordinamento = st.selectbox(
             "Ordina per",
@@ -138,7 +128,7 @@ with tab_codici:
         col_sort_real = sort_map.get(ordinamento, f"Fatturato {y_curr}")
         df_codici = df_codici.sort_values(col_sort_real, ascending=False).reset_index(drop=True)
 
-        st.caption(f"Trovati {len(df_codici):,} codici articolo".replace(",", "."))
+        st.caption(f"{len(df_codici):,} codici articolo".replace(",", "."))
         data_table(
             df_codici,
             {
@@ -157,8 +147,7 @@ with tab_codici:
 
 
 with tab_top_flop:
-    section("Analisi Strategica: Best Seller vs Resi Critici",
-            caption="Resi critici: articoli con almeno 10 paia nette (in mancanza, tutti gli articoli).")
+    section("Best Seller & Resi Critici")
 
     df_base = rb.comparativa_codici(
         curr_view, old_view, pipe.anagrafica, y_curr, y_old,
@@ -169,7 +158,7 @@ with tab_top_flop:
         c_top, c_flop = st.columns(2)
 
         with c_top:
-            st.subheader("🥇 Top 15 Best Seller (per Fatturato)")
+            st.subheader("Top 15 Best Seller (per Fatturato)")
             top_seller = df_base.sort_values(f"Fatturato {y_curr}", ascending=False).head(15).reset_index(drop=True)
             data_table(
                 top_seller,
@@ -183,7 +172,7 @@ with tab_top_flop:
             )
 
         with c_flop:
-            st.subheader("⚠️ Top 15 Articoli con Tasso di Reso più Alto")
+            st.subheader("Top 15 Resi Critici")
             # Filtro minimo paia spedite per evitare falsi positivi su articoli con 1 vendita e 1 reso (100%)
             flop_df = df_base[df_base[f"Paia Net {y_curr}"] >= 10].sort_values(f"% Reso {y_curr}", ascending=False).head(15).reset_index(drop=True)
             if flop_df.empty:

@@ -4,8 +4,7 @@ from core import report_builders as rb
 from core.design_system import page_setup, section, data_table, empty_state
 from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col
 
-page_setup("Taglie per Brand", "👟",
-           "Distribuzione delle vendite e dei resi per taglia e genere (Uomo, Donna, Bambino, ecc.)")
+page_setup("Taglie per Brand", None)
 
 pipe = guard_pipeline()
 current_data = pipe.current_data

@@ -79,6 +79,27 @@ def _css() -> str:
     font-family: {t["font"]};
 }}
 
+/* Header Streamlit trasparente e non bloccante */
+header[data-testid="stHeader"] {{
+    background: transparent !important;
+    pointer-events: none;
+}}
+header[data-testid="stHeader"] * {{
+    pointer-events: auto;
+}}
+
+/* Spaziatura superiore ottimizzata: compatta su tutte le pagine senza topbar */
+.block-container, [data-testid="stMainBlockContainer"] {{
+    padding-top: 1.25rem !important;
+    padding-bottom: 2.5rem !important;
+}}
+
+/* Riserva lo spazio superiore solo per pagine con la topbar (Analisi Dati) */
+.block-container:has(.st-key-topbar),
+[data-testid="stMainBlockContainer"]:has(.st-key-topbar) {{
+    padding-top: 3.25rem !important;
+}}
+
 /* Assicura che testo e paragrafi siano sempre scuri su chiaro e perfettamente leggibili */
 p, span, label, li, [data-testid="stText"], [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] span {{
     color: {t["text"]};
@@ -386,7 +407,7 @@ button[data-baseweb="tab"][aria-selected="true"] {{
 
 /* ---------- Barra periodo (sempre visibile in alto) ---------- */
 [data-testid="stLayoutWrapper"]:has(> .st-key-topbar) {{
-    position: sticky; top: 4.0rem; z-index: 990;
+    position: sticky; top: 3.25rem; z-index: 990;
 }}
 .st-key-topbar {{
     background: {t["surface"]}; border: 1px solid {t["border"]};
@@ -424,13 +445,14 @@ def apply_theme() -> None:
 # ---------------------------------------------------------------------------
 # page_setup — da chiamare come PRIMA istruzione di ogni pagina
 # ---------------------------------------------------------------------------
-def page_setup(page_title: str, icon: str, subtitle: str | None = None,
+def page_setup(page_title: str, icon: str | None = None, subtitle: str | None = None,
                *, layout: str = "wide") -> None:
-    st.set_page_config(page_title=page_title, page_icon=icon, layout=layout)
+    st.set_page_config(page_title=page_title, page_icon=icon if icon else None, layout=layout)
     apply_theme()
     sub = f'<p class="ds-sub">{subtitle}</p>' if subtitle else ""
+    icon_html = f'<div class="ds-icon">{icon}</div>' if icon else ""
     st.markdown(
-        f'<div class="ds-header"><div class="ds-icon">{icon}</div>'
+        f'<div class="ds-header">{icon_html}'
         f"<div><h1>{page_title}</h1>{sub}</div></div>",
         unsafe_allow_html=True,
     )
@@ -472,11 +494,12 @@ def data_table(df, col_config: dict | None = None, *, key: str | None = None) ->
                  column_config=col_config or {}, key=key)
 
 
-def empty_state(message: str, icon: str = "🗂️") -> None:
+def empty_state(message: str, icon: str = "") -> None:
+    icon_str = f"{icon}&nbsp;&nbsp;" if icon else ""
     st.markdown(
         f'<div style="text-align:center;padding:28px;color:{_t()["muted"]};'
         f'border:1px dashed {_t()["border"]};border-radius:12px;margin:8px 0;">'
-        f'{icon}&nbsp;&nbsp;{message}</div>', unsafe_allow_html=True)
+        f'{icon_str}{message}</div>', unsafe_allow_html=True)
 
 
 def style_fig(fig, y_title: str | None = None):

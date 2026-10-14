@@ -325,3 +325,169 @@ def reset_to_defaults(path: Path | str | None = None, db_path: Path | str | None
     """Ripristina i valori predefiniti aziendali e salva."""
     defaults = get_default_settings()
     return save_settings(defaults, path=path, db_path=db_path)
+
+
+# ---------------------# ---------------------------------------------------------------------------------------
+# Personalizzazione Widget Homepage (Visibilità e Ordinamento scelti dall'utente)
+# ---------------------------------------------------------------------------------------
+DEFAULT_HOME_WIDGETS: dict[str, bool] = {
+    "calendario_settimanale": True,
+    "aree_operative": True,
+    "stato_db": True,
+}
+
+DEFAULT_HOME_WIDGETS_ORDER: list[str] = [
+    "calendario_settimanale",
+    "aree_operative",
+    "stato_db",
+]
+
+METADATA_HOME_WIDGETS: list[dict[str, Any]] = [
+    {
+        "id": "calendario_settimanale",
+        "titolo": "Calendario Presenze Settimanale",
+        "descrizione": "Panoramica rapida presenze e ferie dei colleghi (settimana corrente e successiva)",
+        "default": True,
+    },
+    {
+        "id": "aree_operative",
+        "titolo": "Aree Operative",
+        "descrizione": "Riquadri di accesso diretto ai moduli (Analisi Dati, Catalogo, Foto, Ferie)",
+        "default": True,
+    },
+    {
+        "id": "stato_db",
+        "titolo": "Stato Database & Dati",
+        "descrizione": "Metriche di sintesi su articoli, SKU7, marchi e copertura temporale del DB",
+        "default": True,
+    },
+]
+
+
+def get_user_home_widgets_config(conn: sqlite3.Connection | None, user_email: str | None) -> dict[str, Any]:
+    """Recupera la configurazione completa (ordine e visibilità) dei widget per l'utente."""
+    config: dict[str, Any] = {
+        "ordine": list(DEFAULT_HOME_WIDGETS_ORDER),
+        "visibilita": dict(DEFAULT_HOME_WIDGETS),
+    }
+    import streamlit as st
+    try:
+        cached = st.session_state.get("home_widgets_prefs")
+        if isinstance(cached, dict):
+            if "ordine" in cached and isinstance(cached["ordine"], list):
+                valid_order = [x for x in cached["ordine"] if x in DEFAULT_HOME_WIDGETS_ORDER]
+                for w in DEFAULT_HOME_WIDGETS_ORDER:
+                    if w not in valid_order:
+                        valid_order.append(w)
+                config["ordine"] = valid_order
+            if "visibilita" in cached and isinstance(cached["visibilita"], dict):
+                config["visibilita"].update(cached["visibilita"])
+            elif any(k in DEFAULT_HOME_WIDGETS for k in cached):
+                config["visibilita"].update({k: bool(v) for k, v in cached.items() if k in DEFAULT_HOME_WIDGETS})
+    except Exception:
+        pass
+
+    email_clean = (user_email or "").strip().lower()
+    if not email_clean or conn is None:
+        return config
+
+    try:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS utenti_preferenze (
+            email TEXT PRIMARY KEY,
+            preferenze_json TEXT NOT NULL,
+            aggiornato_il TEXT NOT NULL
+        );
+        """)
+        row = conn.execute(
+            "SELECT preferenze_json FROM utenti_preferenze WHERE lower(email) = ?",
+            (email_clean,)
+        ).fetchone()
+        if row and row[0]:
+            salvati = json.loads(row[0])
+            if isinstance(salvati, dict):
+                raw_widgets = salvati.get("widgets", salvati)
+                if isinstance(raw_widgets, dict):
+                    if "ordine" in raw_widgets and isinstance(raw_widgets["ordine"], list):
+                        valid_order = [x for x in raw_widgets["ordine"] if x in DEFAULT_HOME_WIDGETS_ORDER]
+                        for w in DEFAULT_HOME_WIDGETS_ORDER:
+                            if w not in valid_order:
+                                valid_order.append(w)
+                        config["ordine"] = valid_order
+                    if "visibilita" in raw_widgets and isinstance(raw_widgets["visibilita"], dict):
+                        config["visibilita"].update(raw_widgets["visibilita"])
+                    else:
+                        config["visibilita"].update({k: bool(v) for k, v in raw_widgets.items() if k in DEFAULT_HOME_WIDGETS})
+            try:
+                st.session_state["home_widgets_prefs"] = dict(config)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return config
+
+
+def save_user_home_widgets_config(
+    conn: sqlite3.Connection | None,
+    user_email: str | None,
+    ordine: list[str],
+    visibilita: dict[str, bool]
+) -> bool:
+    """Salva ordine e visibilità dei widget homepage in modo persistente su SQLite e session state."""
+    import streamlit as st
+
+    valid_order = [x for x in ordine if x in DEFAULT_HOME_WIDGETS_ORDER]
+    for w in DEFAULT_HOME_WIDGETS_ORDER:
+        if w not in valid_order:
+            valid_order.append(w)
+
+    valid_vis = dict(DEFAULT_HOME_WIDGETS)
+    valid_vis.update({k: bool(v) for k, v in visibilita.items() if k in DEFAULT_HOME_WIDGETS})
+
+    nuova_cfg: dict[str, Any] = {
+        "ordine": valid_order,
+        "visibilita": valid_vis,
+    }
+
+    try:
+        st.session_state["home_widgets_prefs"] = dict(nuova_cfg)
+    except Exception:
+        pass
+
+    email_clean = (user_email or "").strip().lower()
+    if not email_clean or conn is None:
+        return True
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS utenti_preferenze (
+            email TEXT PRIMARY KEY,
+            preferenze_json TEXT NOT NULL,
+            aggiornato_il TEXT NOT NULL
+        );
+        """)
+        payload = json.dumps({"widgets": nuova_cfg})
+        conn.execute("""
+        INSERT INTO utenti_preferenze (email, preferenze_json, aggiornato_il)
+        VALUES (?, ?, ?)
+        ON CONFLICT(email) DO UPDATE SET
+            preferenze_json = excluded.preferenze_json,
+            aggiornato_il = excluded.aggiornato_il
+        """, (email_clean, payload, now_iso))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+def get_user_home_widgets(conn: sqlite3.Connection | None, user_email: str | None) -> dict[str, bool]:
+    """Retrocompatibilità: restituisce il dizionario di visibilità dei widget."""
+    cfg = get_user_home_widgets_config(conn, user_email)
+    return cfg["visibilita"]
+
+
+def save_user_home_widgets(conn: sqlite3.Connection | None, user_email: str | None, widgets_config: dict[str, bool]) -> bool:
+    """Retrocompatibilità: salva la sola visibilità conservando l'ordine esistente."""
+    curr = get_user_home_widgets_config(conn, user_email)
+    return save_user_home_widgets_config(conn, user_email, curr["ordine"], widgets_config)

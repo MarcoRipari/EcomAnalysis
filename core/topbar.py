@@ -15,11 +15,21 @@ from . import config as CFG
 from . import db, pipeline
 from .ui_helpers import shift_year
 
-PERIMETRI = {
+PERIMETRI_BASE = {
     "Totale": "1",
-    "Solo Diretti": "2",
-    "Solo Esterni (ZFS/FBA/AMZ)": "3",
+    "Canali Diretti": "2",
 }
+PERIMETRI = PERIMETRI_BASE
+
+
+def get_perimetri(conn, start, end) -> dict[str, str]:
+    """Costruisce le opzioni di perimetro per il periodo dato:
+    Totale, Canali Diretti e i singoli canali esterni presenti nel periodo (es. Zalando ZFS, Amazon FBA)."""
+    p = dict(PERIMETRI_BASE)
+    esterni = db.canali_esterni_attivi(conn, start, end)
+    for label, code in esterni:
+        p[label] = code
+    return p
 
 
 def anno_fiscale(oggi: dt.date, indietro: int = 0) -> tuple[dt.date, dt.date]:
@@ -52,17 +62,23 @@ def _coperti(periodo: tuple, data_min: dt.date, data_max: dt.date) -> tuple | No
 
 
 def genera(conn, periodo_a: tuple, perimetro_label: str, confronta_2anni: bool,
-           data_min: dt.date, data_max: dt.date) -> None:
+           data_min: dt.date, data_max: dt.date, perimetro_code: str | None = None) -> None:
     """Interroga il DB e aggiorna session_state (pipeline + selezioni usate dalle pagine)."""
     periodo_b = _coperti(periodo_a, data_min, data_max)
     ss = st.session_state
     anag = ss.get("anagrafica") or db.get_anagrafica_dict(conn)
     ss["anagrafica"] = anag
+
+    if perimetro_code is None:
+        perimetri = get_perimetri(conn, periodo_a[0], periodo_a[1])
+        perimetro_code = perimetri.get(perimetro_label, "1")
+
     result = pipeline.build_pipeline_from_db(
         conn, periodo_current=periodo_a, periodo_old=periodo_b,
-        perimetro=PERIMETRI[perimetro_label], anagrafica=anag)
+        perimetro=perimetro_code, anagrafica=anag)
     ss["pipeline"] = result
     ss["perimetro_label"] = perimetro_label
+    ss["perimetro_code"] = perimetro_code
     ss["sel_periodo_a"] = periodo_a
     ss["sel_periodo_b"] = periodo_b
     ss["periodo_a_label"] = f"{periodo_a[0]} → {periodo_a[1]}"
@@ -85,17 +101,30 @@ def render() -> None:
         # un nuovo file ANAGRAFICA (caricato in Carica Dati) richiede di rigenerare con la stessa selezione
         rigenera = ss.pop("rigenera_pipeline", False) and "sel_periodo_a" in ss
         default = ss.get("sel_periodo_a") or periodo_predefinito(dt.date.today(), data_min, data_max)
+        periodo_rif = ss.get("sel_periodo_a") or default
+        perimetri = get_perimetri(conn, periodo_rif[0], periodo_rif[1])
+
+        curr_label = ss.get("perimetro_label")
+        if curr_label not in perimetri:
+            if curr_label in ("Solo Diretti", "2"):
+                curr_label = "Canali Diretti"
+            elif curr_label in ("Solo Esterni (ZFS/FBA/AMZ)", "3"):
+                curr_label = next((k for k in perimetri if k not in PERIMETRI_BASE), "Totale")
+            else:
+                curr_label = "Totale"
+
+        perimetro_idx = list(perimetri).index(curr_label) if curr_label in perimetri else 0
 
         with st.form("topbar_form", border=False):
             c_per, c_date, c_conf, c_btn = st.columns([2.2, 3, 2.6, 1.5], vertical_alignment="bottom")
             perimetro_label = c_per.selectbox(
-                "Perimetro", list(PERIMETRI),
-                index=list(PERIMETRI).index(ss["perimetro_label"]) if ss.get("perimetro_label") in PERIMETRI else 0)
+                "Perimetro", list(perimetri),
+                index=perimetro_idx)
             periodo_a = c_date.date_input(
-                "Periodo", value=default, min_value=data_min, max_value=data_max, format="DD/MM/YYYY",
+                "Periodo di Analisi", value=default, min_value=data_min, max_value=data_max, format="DD/MM/YYYY",
                 help=f"Dati disponibili dal {data_min:%d/%m/%Y} al {data_max:%d/%m/%Y}. "
                      "Il confronto con l'anno precedente è automatico.")
-            confronta_2anni = c_conf.checkbox("Confronta anche 2 anni precedenti",
+            confronta_2anni = c_conf.checkbox("Includi Confronto Triennale (Y-2)",
                                               value=ss.get("sel_confronta_2anni", False))
             applica = c_btn.form_submit_button("Applica", type="primary", width="stretch")
 
@@ -106,8 +135,10 @@ def render() -> None:
         da_generare = (applica and periodo_ok) or rigenera or "pipeline" not in ss
         if da_generare:
             periodo = tuple(periodo_a) if periodo_ok else tuple(default)
+            perim_map = get_perimetri(conn, periodo[0], periodo[1])
+            code = perim_map.get(perimetro_label, "1")
             with st.spinner("Calcolo dei dati…"):
-                genera(conn, periodo, perimetro_label, confronta_2anni, data_min, data_max)
+                genera(conn, periodo, perimetro_label, confronta_2anni, data_min, data_max, perimetro_code=code)
 
         if "pipeline" in ss:
             conf = f" · confronto **{ss['periodo_b_label']}**" if ss.get("periodo_b_label") else \

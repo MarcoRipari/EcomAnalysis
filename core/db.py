@@ -58,6 +58,8 @@ CREATE INDEX IF NOT EXISTS idx_key_composito ON righe(key_composito, status);
 CREATE INDEX IF NOT EXISTS idx_data_vendita ON righe(data_vendita);
 CREATE INDEX IF NOT EXISTS idx_data_reso ON righe(data_reso);
 CREATE INDEX IF NOT EXISTS idx_sku13 ON righe(sku13);
+CREATE INDEX IF NOT EXISTS idx_tipo_sped_data ON righe(tipo_spedizione, data_vendita);
+CREATE INDEX IF NOT EXISTS idx_tipo_sped_reso ON righe(tipo_spedizione, data_reso);
 
 CREATE TABLE IF NOT EXISTS log_match (
     ts TEXT, fonte_file TEXT, esito TEXT,
@@ -127,6 +129,54 @@ CREATE TABLE IF NOT EXISTS regole_anagrafica (
     UNIQUE(tipo, valore)
 );
 CREATE INDEX IF NOT EXISTS idx_regole_anagrafica_tipo ON regole_anagrafica(tipo, attivo);
+
+CREATE TABLE IF NOT EXISTS ruoli (
+    nome TEXT PRIMARY KEY,
+    descrizione TEXT NOT NULL DEFAULT '',
+    is_system INTEGER NOT NULL DEFAULT 0,
+    creato_il TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS permessi_ruolo (
+    ruolo TEXT NOT NULL,
+    pagina_id TEXT NOT NULL,
+    attivo INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (ruolo, pagina_id)
+);
+
+CREATE TABLE IF NOT EXISTS utenti_ruoli (
+    email TEXT PRIMARY KEY,
+    ruolo TEXT NOT NULL,
+    assegnato_il TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dipendenti (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT UNIQUE NOT NULL,
+    email TEXT DEFAULT '',
+    totale_annuo REAL NOT NULL DEFAULT 26.0,
+    mattina_inizio TEXT NOT NULL DEFAULT '08:00',
+    mattina_fine TEXT NOT NULL DEFAULT '12:00',
+    pomeriggio_inizio TEXT NOT NULL DEFAULT '14:00',
+    pomeriggio_fine TEXT NOT NULL DEFAULT '18:00',
+    attivo INTEGER NOT NULL DEFAULT 1,
+    creato_il TEXT NOT NULL,
+    aggiornato_il TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ferie_assenze (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    data_inizio TEXT NOT NULL,
+    data_fine TEXT NOT NULL,
+    tipo TEXT NOT NULL DEFAULT 'Ferie',
+    giorni_lavorativi REAL NOT NULL,
+    dettaglio TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    creato_il TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ferie_nome ON ferie_assenze(nome);
+CREATE INDEX IF NOT EXISTS idx_ferie_date ON ferie_assenze(data_inizio, data_fine);
 """
 
 
@@ -570,10 +620,17 @@ def query_period(conn: sqlite3.Connection, start, end, perimetro: str = "1",
     period_start, period_end = pd.Timestamp(start), pd.Timestamp(end)
 
     where_perimetro = ""
-    if perimetro == "2":
+    if perimetro in ("2", "DIRETTO", "Canali Diretti", "Solo Diretti"):
         where_perimetro = " AND tipo_spedizione='DIRETTO'"
-    elif perimetro == "3":
+    elif perimetro in ("3", "ESTERNA"):
         where_perimetro = " AND tipo_spedizione='ESTERNA'"
+    elif perimetro in ("ZFS", "Zalando ZFS"):
+        where_perimetro = " AND tipo_spedizione='ESTERNA' AND ordine_id LIKE '%_ZFS%'"
+    elif perimetro in ("FBA", "Amazon FBA"):
+        where_perimetro = " AND tipo_spedizione='ESTERNA' AND (ordine_id LIKE '%_FBA%' OR ordine_id LIKE '%-AMZ%')"
+    elif str(perimetro).startswith("EXT_"):
+        mkp_name = str(perimetro)[4:].replace("'", "''")
+        where_perimetro = f" AND tipo_spedizione='ESTERNA' AND mkp='{mkp_name}'"
 
     # filtro SKU per prefisso (solo lettere/cifre, quindi sicuro per LIKE): sku13 = SKU senza
     # trattini, primi 13 caratteri; per prefissi più lunghi si confronta l'SKU completo senza trattini.
@@ -617,6 +674,49 @@ def query_period(conn: sqlite3.Connection, start, end, perimetro: str = "1",
         reso_extra = _finalize_period_df(reso_extra, period_start, period_end)
 
     return venduto.reset_index(drop=True), reso_extra.reset_index(drop=True)
+
+
+def canali_esterni_attivi(conn: sqlite3.Connection, start, end) -> list[tuple[str, str]]:
+    """Ritorna i canali logistici esterni presenti nel periodo [start, end].
+    Ritorna una lista di tuple: [(label_ui, codice_perimetro), ...].
+    Es. [('Zalando ZFS', 'ZFS'), ('Amazon FBA', 'FBA')]."""
+    start_s, end_s = _fmt_date(start), _fmt_date(end)
+    q = """
+    SELECT DISTINCT mkp FROM (
+        SELECT mkp FROM righe WHERE tipo_spedizione = 'ESTERNA' AND data_vendita BETWEEN ? AND ?
+        UNION ALL
+        SELECT mkp FROM righe WHERE tipo_spedizione = 'ESTERNA' AND status = 'Reso' AND data_reso BETWEEN ? AND ?
+    )
+    """
+    try:
+        mkps = [r[0] for r in conn.execute(q, (start_s, end_s, start_s, end_s)).fetchall() if r[0]]
+    except sqlite3.OperationalError:
+        return []
+
+    canali = []
+    for m in mkps:
+        m_lower = m.lower()
+        if "zalando" in m_lower:
+            has_zfs = conn.execute("""
+                SELECT 1 FROM righe WHERE tipo_spedizione='ESTERNA' AND ordine_id LIKE '%_ZFS%'
+                AND (data_vendita BETWEEN ? AND ? OR (data_reso BETWEEN ? AND ? AND status='Reso')) LIMIT 1
+            """, (start_s, end_s, start_s, end_s)).fetchone()
+            if has_zfs:
+                canali.append(("Zalando ZFS", "ZFS"))
+            else:
+                canali.append((f"{m} Esterno", f"EXT_{m}"))
+        elif "amazon" in m_lower:
+            has_fba = conn.execute("""
+                SELECT 1 FROM righe WHERE tipo_spedizione='ESTERNA' AND (ordine_id LIKE '%_FBA%' OR ordine_id LIKE '%-AMZ%')
+                AND (data_vendita BETWEEN ? AND ? OR (data_reso BETWEEN ? AND ? AND status='Reso')) LIMIT 1
+            """, (start_s, end_s, start_s, end_s)).fetchone()
+            if has_fba:
+                canali.append(("Amazon FBA", "FBA"))
+            else:
+                canali.append((f"{m} Esterno", f"EXT_{m}"))
+        else:
+            canali.append((f"{m} Esterno", f"EXT_{m}"))
+    return canali
 
 
 def get_data_bounds(conn: sqlite3.Connection) -> tuple[str | None, str | None]:

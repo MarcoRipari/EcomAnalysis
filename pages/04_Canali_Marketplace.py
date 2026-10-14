@@ -8,8 +8,7 @@ from core import report_builders as rb
 from core.design_system import page_setup, section, data_table, chart, metric_cards, empty_state, it_num
 from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col, period_labels
 
-page_setup("Canali & Marketplace", "🛍️",
-           "Performance strategica: Canale Diretto vs Marketplace Esterni (Zalando ZFS, Mirakl, ecc.)")
+page_setup("Canali & Marketplace", None)
 
 pipe = guard_pipeline()
 y_curr, y_old = period_labels(2)

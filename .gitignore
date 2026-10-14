@@ -1,10 +1,42 @@
+# Data & Databases
 data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Virtual Environments
 venv/
+env/
+.venv/
+
+# Byte-compiled / optimized files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Environment & Secrets
 .env
 api/.env
 *.env
+*.env.*
 .streamlit/secrets.toml
-node_modules/
+
+# Streamlit logs & cache
+.streamlit/*.log
+
+# Tests & Coverage
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Dependencies & Temporary modules
+node_modules/
+graphify-out/
+to_implement/
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

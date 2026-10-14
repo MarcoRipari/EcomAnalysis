@@ -10,11 +10,7 @@ importlib.reload(engine)
 from core.design_system import page_setup, section, metric_cards, data_table, empty_state
 from core.formatting import fmt_int
 
-page_setup(
-    "Anagrafica Articoli", "📋",
-    "Gestione completa dell'Anagrafica nel DB: ricerca, regole di esclusione marchi/categorie, "
-    "verifica e correzione generi, modifica stagione per singolo SKU e importazione."
-)
+page_setup("Anagrafica Articoli", None)
 
 conn = db.connect()
 
@@ -53,19 +49,18 @@ st.write("")
 # Tab principali di gestione Anagrafica
 # ---------------------------------------------------------------------------------------
 tab_esplora, tab_regole, tab_genere, tab_stagione, tab_import = st.tabs([
-    "📊 Esplora & Cerca",
-    "⚙️ Regole di Esclusione",
-    "🏷️ Verifica & Gestione Genere",
-    "✏️ Modifica Stagione SKU",
-    "⬆️ Import & Manutenzione DB",
+    "Catalogo Articoli",
+    "Regole Esclusione",
+    "Classificazione Genere",
+    "Modifica Stagione",
+    "Import & Manutenzione",
 ])
 
 # =======================================================================================
 # TAB 1: ESPLORA & CERCA
 # =======================================================================================
 with tab_esplora:
-    section("Catalogo Anagrafica Articoli",
-            caption="Filtra e cerca tra tutti gli articoli registrati nel database. Puoi esportare i risultati.")
+    section("Catalogo Anagrafica Articoli")
 
     if tot_sku13 == 0:
         empty_state("Nessun articolo presente nell'anagrafica del DB. Vai al tab 'Import & Manutenzione DB' per caricare i file.")

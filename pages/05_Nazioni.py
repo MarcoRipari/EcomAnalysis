@@ -5,8 +5,7 @@ from core import report_builders as rb
 from core.design_system import page_setup, section, data_table, empty_state
 from core.ui_helpers import guard_pipeline, currency_col, percent_col, number_col, period_labels, shift_year
 
-page_setup("Nazioni & Geografia", "🌍",
-           "Fatturato, paia e resi per nazione, con la ripartizione per brand")
+page_setup("Nazioni & Geografia", None)
 
 pipe = guard_pipeline()
 
@@ -31,9 +30,7 @@ if periodo_a and st.session_state.get("sel_confronta_2anni", False):
     y_2anni = period_labels(3)[2]
     st.markdown(f"<p class='ds-caption'><b>{y_2anni}</b>: {periodo_c[0]} → {periodo_c[1]}</p>",
                 unsafe_allow_html=True)
-    if data_2.empty and resi_fp_2.empty:
-        st.caption("Nessun dato nel DB per l'anno−2: il confronto resterà vuoto.")
-    else:
+    if not (data_2.empty and resi_fp_2.empty):
         periodi.append((y_2anni, data_2, resi_fp_2))
 
 opzioni = rb.nazioni_disponibili(*[d for _, v, r in periodi for d in (v, r)])
@@ -50,7 +47,7 @@ if not nazioni_scelte:
 
 CONF_KPI = {
     "Fatturato": currency_col(), "% Reso": percent_col(), "Paia Nette": number_col(),
-    "Paia Rese (vendite del periodo)": number_col(), "Paia Rese (vendite fuori periodo)": number_col(),
+    "Paia Rese (Periodo)": number_col(), "Paia Rese (Fuori Periodo)": number_col(),
 }
 CONF_BRAND = {
     "Fatturato": currency_col(), "Share %": percent_col(), "Valore Medio Paio": currency_col(),

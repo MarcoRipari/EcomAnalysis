@@ -210,3 +210,47 @@ else:
                     st.rerun()
                 else:
                     st.error(f"Revoca fallita ({r.status_code}): {r.text[:200]}")
+
+st.divider()
+st.subheader("🖥️ Personalizzazione Homepage (Widget)")
+st.caption("Configura quali sezioni e widget desideri visualizzare nella pagina iniziale:")
+
+from core import db, settings
+conn_acc = db.connect()
+email_utente = sess["user"].get("email", "")
+cfg_acc = settings.get_user_home_widgets_config(conn_acc, email_utente)
+ordine_acc = cfg_acc["ordine"]
+vis_acc = cfg_acc["visibilita"]
+
+nomi_w_acc = {
+    "calendario_settimanale": ("Calendario Settimanale Presenze", "Panoramica presenze e ferie dei colleghi."),
+    "aree_operative": ("Aree Operative", "Scorciatoie di navigazione rapida ai moduli."),
+    "stato_db": ("Stato Database & Dati", "Metriche di copertura e dimensioni del database."),
+}
+
+with st.form("form_pref_widget_account"):
+    pos_acc_scelte = {}
+    vis_acc_scelte = {}
+    for idx_a, wid_a in enumerate(ordine_acc):
+        tit_a, desc_a = nomi_w_acc.get(wid_a, (wid_a, ""))
+        c_va, c_pa = st.columns([3, 2])
+        with c_va:
+            vis_acc_scelte[wid_a] = st.checkbox(
+                tit_a,
+                value=vis_acc.get(wid_a, True),
+                key=f"acc_vis_{wid_a}",
+                help=desc_a,
+            )
+        with c_pa:
+            pos_acc_scelte[wid_a] = st.selectbox(
+                "Posizione",
+                options=[1, 2, 3],
+                index=idx_a,
+                key=f"acc_pos_{wid_a}",
+                help=f"Posizione per {tit_a}",
+            )
+    if st.form_submit_button("Salva Configurazione Widget", type="primary"):
+        nuovo_ord_acc = sorted(ordine_acc, key=lambda w: (pos_acc_scelte[w], ordine_acc.index(w)))
+        settings.save_user_home_widgets_config(conn_acc, email_utente, nuovo_ord_acc, vis_acc_scelte)
+        st.success("Preferenze homepage salvate con successo!")
+        st.rerun()

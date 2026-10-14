@@ -12,8 +12,16 @@ from core import db, pipeline  # noqa: E402
 from tests.conftest import carica, riga  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGINE = ["00_Carica_Dati", "11_Log_Riconciliazione", "01_Dashboard", "02_Y2Y_Generale", "03_Articoli_e_Collezioni", "04_Canali_Marketplace",
-          "05_Nazioni", "06_Analisi_Resi", "07_Trova_SKU", "08_Taglie", "10_Export_Dati", "13_Correzioni_DB", "14_Configurazioni", "15_Anagrafica"]
+PAGINE = [
+    "00_Home", "00_Carica_Dati", "11_Log_Riconciliazione", "01_Dashboard", "02_Y2Y_Generale",
+    "03_Articoli_e_Collezioni", "04_Canali_Marketplace", "05_Nazioni", "06_Analisi_Resi",
+    "07_Trova_SKU", "08_Taglie", "09_Sell_Through", "10_Export_Dati", "13_Correzioni_DB",
+    "14_Configurazioni", "15_Anagrafica", "16_Gestione_Ruoli", "17_Nuovo_Utente",
+    "18_Stato_Connessioni",
+    "20_Catalogo_Panoramica", "21_Catalogo_Articoli", "22_Foto_Archivio", "23_Foto_Caricamento",
+    "24_Ferie_Calendario", "25_Ferie_Registra", "26_Ferie_Riepilogo", "27_Ferie_Configurazioni",
+    "99_Test_Chatbot"
+]
 
 PERIODO_A = (dt.date(2026, 1, 1), dt.date(2026, 3, 31))
 PERIODO_B = (dt.date(2025, 1, 1), dt.date(2025, 3, 31))
@@ -35,7 +43,7 @@ def ambiente(request, tmp_path, monkeypatch):
     pipe = pipeline.build_pipeline_from_db(conn, PERIODO_A, PERIODO_B, "1", {})
     return {"pipeline": pipe, "sel_periodo_a": PERIODO_A, "sel_periodo_b": PERIODO_B,
             "periodo_a_label": "2026-01-01 → 2026-03-31", "periodo_b_label": "2025-01-01 → 2025-03-31",
-            "sel_confronta_2anni": False, "perimetro_label": "TOTALE"}
+            "sel_confronta_2anni": False, "perimetro_label": "TOTALE", "user_role": "Admin"}
 
 
 @pytest.mark.parametrize("pagina", PAGINE)
